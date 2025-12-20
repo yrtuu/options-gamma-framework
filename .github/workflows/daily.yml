@@ -1,21 +1,16 @@
 name: Daily run
 
-on: [workflow_dispatch, schedule]
-
-# 🔒 blokada równoległych uruchomień (KLUCZOWE)
-concurrency:
-  group: options-gamma-daily
-  cancel-in-progress: true
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
 
 jobs:
   run:
     runs-on: ubuntu-latest
 
     steps:
-      # 📥 pełna historia repo (wymagane dla rebase)
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,16 +23,9 @@ jobs:
       - name: Run script
         run: python src/main.py
 
-      # 🧠 bezpieczny commit + push (bez konfliktów)
-      - name: Commit results
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git fetch origin main
-          git rebase origin/main || git rebase --abort
-
-          git add data/
-          git commit -m "Daily snapshot" || echo "No changes"
-
-          git push origin main
+      # 📦 zapis danych jako artifact (ZAMIAST git push)
+      - name: Upload snapshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-snapshots
+          path: data/
