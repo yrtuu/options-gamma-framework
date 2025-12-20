@@ -1,11 +1,9 @@
 name: Test workflow
 
-on:
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Say hello
-        run: echo "Workflow is alive"
+      - run: echo "Workflow works"
