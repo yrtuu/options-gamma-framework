@@ -92,11 +92,17 @@ def write_summary(summary):
 
 def main():
     df = load_raw()
+
+    if df.empty or "symbol" not in df.columns:
+        print("No valid raw data yet — skipping postprocess")
+        return
+
     df = update_close_t1(df)
     write_back_close_t1(df)
 
     summary = daily_summary(df)
     write_summary(summary)
+
 
 if __name__ == "__main__":
     main()
