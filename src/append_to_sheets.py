@@ -5,19 +5,23 @@ import pandas as pd
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 
-from daily_summary import summarize_symbol
 
 SPREADSHEET_NAME = "Options Gamma Log"
-SHEET_NAME = "Sheet1"
+SHEET_NAME = "raw_daily"
 
 SCHEMA = [
     "date",
+    "week",
     "symbol",
     "spot",
+
     "dnz_low",
     "dnz_mid",
     "dnz_high",
     "spot_position",
+
+    "gamma_bucket",
+    "regime",
 
     "gamma_above",
     "gamma_below",
@@ -26,13 +30,12 @@ SCHEMA = [
     "gamma_ratio",
     "gamma_asym_strength",
 
-    "structure_tags",
-
     "close_t+1",
     "close_t+2",
     "close_t+5",
     "event_flag",
 ]
+
 
 
 def get_client():
@@ -51,14 +54,7 @@ def append_csv(path):
 
     df = pd.read_csv(path)
 
-    # --- STRUCTURE TAGS ---
-    symbol = df.iloc[0]["symbol"]
-    summary = summarize_symbol(symbol)
-    if summary:
-        df["structure_tags"] = summary["structure_tags"]
-    else:
-        df["structure_tags"] = ""
-
+   
     # --- WYMUSZAMY SCHEMAT ---
     df = df[SCHEMA]
 
