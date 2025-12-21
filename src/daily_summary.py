@@ -36,4 +36,4 @@ def summarize_symbol(symbol):
         "date": row["date"],
         "symbol": symbol,
         "structure_tags": structure_tags(row),
-    } 
+    }  
