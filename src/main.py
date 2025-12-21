@@ -5,6 +5,32 @@ from datetime import datetime
 from math import sqrt
 from py_vollib.black_scholes.greeks.analytical import delta, gamma
 
+
+def spot_bucket(x):
+    if abs(x) < 0.3:
+        return "center"
+    if x > 1:
+        return "break_up"
+    if x < -1:
+        return "break_down"
+    return "edge"
+
+
+def gamma_bucket(r):
+    if r > 0.6:
+        return "gamma_up"
+    if r < 0.4:
+        return "gamma_down"
+    return "gamma_neutral"
+
+
+def week_from_date(date_str):
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    year, week, _ = dt.isocalendar()
+    return f"{year}-{week:02d}"
+
+
+
 SYMBOLS = ["SPY", "QQQ", "AAPL"]
 RISK_FREE = 0.05
 
@@ -89,16 +115,29 @@ def run(symbol):
     dnz_range = dnz_high - dnz_low
     spot_position = (spot - dnz_mid) / dnz_range if dnz_range != 0 else 0.0
 
-    
     today = datetime.utcnow().strftime("%Y-%m-%d")
+    # --- BUCKETS & REGIME ---
+    sb = spot_bucket(spot_position)
+    gb = gamma_bucket(gamma_ratio)
+    regime = f"{sb} | {gb}"
+    week = week_from_date(today)
+
+    
+  
     out = pd.DataFrame([{
     "date": today,
+    "week": week,
     "symbol": symbol,
     "spot": spot,
+
     "dnz_low": dnz_low,
     "dnz_mid": dnz_mid,
     "dnz_high": dnz_high,
     "spot_position": spot_position,
+
+    "spot_bucket": sb,
+    "gamma_bucket": gb,
+    "regime": regime,
 
     "gamma_above": gamma_above,
     "gamma_below": gamma_below,
@@ -107,7 +146,6 @@ def run(symbol):
     "gamma_ratio": gamma_ratio,
     "gamma_asym_strength": gamma_asym_strength,
 
-    # --- FUTURE PLACEHOLDERS ---
     "close_t+1": "",
     "close_t+2": "",
     "close_t+5": "",
@@ -115,16 +153,23 @@ def run(symbol):
 }])
 
 
+
 # ⬇️ JAWNIE WYBIERAMY KOLUMNY (KLUCZOWE)
     out = out[
     [
         "date",
+        "week",
         "symbol",
         "spot",
+
         "dnz_low",
         "dnz_mid",
         "dnz_high",
         "spot_position",
+
+        "spot_bucket",
+        "gamma_bucket",
+        "regime",
 
         "gamma_above",
         "gamma_below",
@@ -139,6 +184,7 @@ def run(symbol):
         "event_flag",
     ]
 ]
+
 
 
     out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
