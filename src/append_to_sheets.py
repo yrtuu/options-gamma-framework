@@ -17,10 +17,23 @@ SCHEMA = [
     "dnz_low",
     "dnz_mid",
     "dnz_high",
+    "spot_position",
+
     "gamma_above",
     "gamma_below",
+    "gamma_total",
+    "gamma_diff",
+    "gamma_ratio",
+    "gamma_asym_strength",
+
     "structure_tags",
+
+    "close_t+1",
+    "close_t+2",
+    "close_t+5",
+    "event_flag",
 ]
+
 
 def get_client():
     creds_json = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
