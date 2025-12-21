@@ -33,3 +33,6 @@ jobs:
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         run: python src/append_to_sheets.py
+      
+      - name: Daily market summary
+        run: python src/daily_summary.py
