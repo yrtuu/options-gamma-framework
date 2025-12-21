@@ -66,6 +66,10 @@ def append_csv(path):
     if ws.get_all_values() == []:
         ws.append_row(SCHEMA)
 
+    # --- SANITY CLEANING FOR GOOGLE SHEETS ---
+    df = df.replace([float("inf"), float("-inf")], "")
+    df = df.fillna("")
+
     ws.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
 
 if __name__ == "__main__":
