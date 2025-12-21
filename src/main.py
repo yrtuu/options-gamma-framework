@@ -76,8 +76,20 @@ def run(symbol):
     gamma_above = df[df["strike"] > spot]["gamma_exp"].sum()
     gamma_below = df[df["strike"] < spot]["gamma_exp"].sum()
 
-    dnz_low, dnz_mid, dnz_high = find_dnz(df, spot)
+    # --- GAMMA DERIVED METRICS ---
+    gamma_total = gamma_above + gamma_below
+    gamma_diff = gamma_above - gamma_below
+    gamma_ratio = gamma_above / gamma_total if gamma_total != 0 else 0.0
+    gamma_asym_strength = abs(gamma_diff) / gamma_total if gamma_total != 0 else 0.0
+    
 
+    
+    dnz_low, dnz_mid, dnz_high = find_dnz(df, spot)
+    # --- SPOT POSITION IN DNZ ---
+    dnz_range = dnz_high - dnz_low
+    spot_position = (spot - dnz_mid) / dnz_range if dnz_range != 0 else 0.0
+
+    
     today = datetime.utcnow().strftime("%Y-%m-%d")
     out = pd.DataFrame([{
     "date": today,
@@ -86,9 +98,22 @@ def run(symbol):
     "dnz_low": dnz_low,
     "dnz_mid": dnz_mid,
     "dnz_high": dnz_high,
+    "spot_position": spot_position,
+
     "gamma_above": gamma_above,
-    "gamma_below": gamma_below
+    "gamma_below": gamma_below,
+    "gamma_total": gamma_total,
+    "gamma_diff": gamma_diff,
+    "gamma_ratio": gamma_ratio,
+    "gamma_asym_strength": gamma_asym_strength,
+
+    # --- FUTURE PLACEHOLDERS ---
+    "close_t+1": "",
+    "close_t+2": "",
+    "close_t+5": "",
+    "event_flag": "",
 }])
+
 
 # ⬇️ JAWNIE WYBIERAMY KOLUMNY (KLUCZOWE)
     out = out[
@@ -99,10 +124,22 @@ def run(symbol):
         "dnz_low",
         "dnz_mid",
         "dnz_high",
+        "spot_position",
+
         "gamma_above",
         "gamma_below",
+        "gamma_total",
+        "gamma_diff",
+        "gamma_ratio",
+        "gamma_asym_strength",
+
+        "close_t+1",
+        "close_t+2",
+        "close_t+5",
+        "event_flag",
     ]
 ]
+
 
     out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
 if __name__ == "__main__":
