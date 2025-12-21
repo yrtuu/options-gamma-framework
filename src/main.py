@@ -91,7 +91,7 @@ def run(symbol):
 }])
 
 # ⬇️ JAWNIE WYBIERAMY KOLUMNY (KLUCZOWE)
-out = out[
+    out = out[
     [
         "date",
         "symbol",
@@ -104,7 +104,7 @@ out = out[
     ]
 ]
 
-out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
+    out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
 if __name__ == "__main__":
     for s in SYMBOLS:
         run(s)
