@@ -80,18 +80,31 @@ def run(symbol):
 
     today = datetime.utcnow().strftime("%Y-%m-%d")
     out = pd.DataFrame([{
-        "date": today,
-        "symbol": symbol,
-        "spot": spot,
-        "dnz_low": dnz_low,
-        "dnz_mid": dnz_mid,
-        "dnz_high": dnz_high,
-        "gamma_above": gamma_above,
-        "gamma_below": gamma_below
-    }])
+    "date": today,
+    "symbol": symbol,
+    "spot": spot,
+    "dnz_low": dnz_low,
+    "dnz_mid": dnz_mid,
+    "dnz_high": dnz_high,
+    "gamma_above": gamma_above,
+    "gamma_below": gamma_below
+}])
 
-    out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
+# ⬇️ JAWNIE WYBIERAMY KOLUMNY (KLUCZOWE)
+out = out[
+    [
+        "date",
+        "symbol",
+        "spot",
+        "dnz_low",
+        "dnz_mid",
+        "dnz_high",
+        "gamma_above",
+        "gamma_below",
+    ]
+]
 
+out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
 if __name__ == "__main__":
     for s in SYMBOLS:
         run(s)
