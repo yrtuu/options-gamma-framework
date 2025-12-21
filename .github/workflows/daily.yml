@@ -29,3 +29,7 @@ jobs:
         with:
           name: market-snapshots
           path: data/
+      - name: Append data to Google Sheets
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        run: python src/append_to_sheets.py
