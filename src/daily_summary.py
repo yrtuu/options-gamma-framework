@@ -22,7 +22,7 @@ def structure_tags(row):
     else:
         tags.append("gamma_asym_down")
 
-    return "|".join(tags)
+    return " | ".join(tags)
 
 def summarize_symbol(symbol):
     files = sorted(DATA_PATH.glob(f"*_{symbol}.csv"))
