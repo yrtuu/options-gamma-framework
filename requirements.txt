@@ -3,3 +3,5 @@ pandas
 numpy
 py_vollib
 scipy
+gspread
+google-auth
