@@ -89,3 +89,14 @@ def write_summary(summary):
         ws.append_row(list(summary.keys()))
 
     ws.append_row(list(summary.values()))
+
+def main():
+    df = load_raw()
+    df = update_close_t1(df)
+    write_back_close_t1(df)
+
+    summary = daily_summary(df)
+    write_summary(summary)
+
+if __name__ == "__main__":
+    main()
