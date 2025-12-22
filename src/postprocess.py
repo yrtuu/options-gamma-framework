@@ -91,19 +91,23 @@ def write_back_forward_closes(df):
     ws = sh.worksheet(RAW_SHEET)
 
     records = ws.get_all_records()
-    headers = ws.row_values(1)
     df_sheet = pd.DataFrame(records)
+
+    # 🔴 KLUCZOWA LINIA — NORMALIZACJA NAGŁÓWKÓW
+    df_sheet.columns = [c.strip().lower() for c in df_sheet.columns]
+
+    headers = [h.strip().lower() for h in ws.row_values(1)]
 
     for _, row in df.iterrows():
         mask = (
-            (df_sheet["date"] == row["date"])
-            & (df_sheet["symbol"] == row["symbol"])
+            (df_sheet["date"] == row["date"]) &
+            (df_sheet["symbol"] == row["symbol"])
         )
 
         if not mask.any():
             continue
 
-        sheet_row = df_sheet[mask].index[0] + 2
+        sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
 
         for col in [
             "close_t+1", "close_t+2", "close_t+5",
