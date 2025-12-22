@@ -142,17 +142,24 @@ def daily_summary(df):
 
 
 def write_summary(summary):
-    if not summary:
-        return
-
     gc = get_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(SUMMARY_SHEET)
 
-    if ws.get_all_values() == []:
-        ws.append_row(list(summary.keys()))
+    # --- FORCE PYTHON NATIVE TYPES (CRITICAL FIX) ---
+    clean_summary = {}
+    for k, v in summary.items():
+        if isinstance(v, (pd.Int64Dtype,)):
+            clean_summary[k] = int(v)
+        elif hasattr(v, "item"):  # numpy scalar
+            clean_summary[k] = v.item()
+        else:
+            clean_summary[k] = v
 
-    ws.append_row(list(summary.values()))
+    if ws.get_all_values() == []:
+        ws.append_row(list(clean_summary.keys()), value_input_option="RAW")
+
+    ws.append_row(list(clean_summary.values()), value_input_option="RAW")
 
 
 def main():
