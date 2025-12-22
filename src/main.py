@@ -188,6 +188,7 @@ def run(symbol):
         return
 
     df = compute_greeks(df, spot)
+    gamma_profile = compute_gamma_profile(df, spot)
 
     gamma_above = df[df["strike"] > spot]["gamma_exp"].sum()
     gamma_below = df[df["strike"] < spot]["gamma_exp"].sum()
@@ -238,6 +239,9 @@ def run(symbol):
     "gamma_ratio": gamma_ratio,
     "gamma_asym_strength": gamma_asym_strength,
     "effective_gamma_pressure": effective_gamma_pressure,
+    "gamma_peak_price": gamma_profile["gamma_peak_price"],
+    "gamma_concentration": gamma_profile["gamma_concentration"],
+    "gamma_distance_from_spot": gamma_profile["gamma_distance_from_spot"],
 
     
     "close_t+1": "",
@@ -272,6 +276,9 @@ def run(symbol):
         "gamma_ratio",
         "gamma_asym_strength",
         "effective_gamma_pressure",
+        "gamma_peak_price",
+        "gamma_concentration",
+        "gamma_distance_from_spot",
 
         
         "close_t+1",
