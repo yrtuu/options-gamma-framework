@@ -20,6 +20,7 @@ SCHEMA = [
     "dnz_high",
     "spot_position",
 
+    "spot_bucket",
     "gamma_bucket",
     "regime",
 
@@ -30,11 +31,17 @@ SCHEMA = [
     "gamma_ratio",
     "gamma_asym_strength",
 
+    "effective_gamma_pressure",
+    "gamma_peak_price",
+    "gamma_concentration",
+    "gamma_distance_from_spot",
+
     "close_t+1",
     "close_t+2",
     "close_t+5",
     "event_flag",
 ]
+
 
 
 
