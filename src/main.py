@@ -226,6 +226,7 @@ def run(symbol):
     "dnz_low": dnz_low,
     "dnz_mid": dnz_mid,
     "dnz_high": dnz_high,
+    "dnz_width": dnz_high - dnz_low,
     "spot_position": spot_position,
 
     "spot_bucket": sb,
@@ -263,6 +264,7 @@ def run(symbol):
         "dnz_low",
         "dnz_mid",
         "dnz_high",
+        "dnz_width",
         "spot_position",
 
         "spot_bucket",
