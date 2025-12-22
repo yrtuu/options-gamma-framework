@@ -81,16 +81,40 @@ def compute_greeks(df, spot):
     return df
 
 def find_dnz(df, spot):
-    prices = np.linspace(spot*0.9, spot*1.1, 200)
-    totals = []
+    prices = np.linspace(spot * 0.9, spot * 1.1, 200)
+    net_deltas = []
 
     for p in prices:
-        totals.append(df["delta_exp"].sum())
+        total = 0.0
 
-    idx = np.argmin(np.abs(totals))
-    mid = prices[idx]
+        for _, r in df.iterrows():
+            flag = "c" if r["type"] == "call" else "p"
+            try:
+                d = delta(
+                    flag,
+                    p,                      # 👈 KLUCZOWA ZMIANA
+                    r["strike"],
+                    r["dte"] / 365,
+                    RISK_FREE,
+                    r["iv"],
+                )
+            except:
+                d = 0.0
 
-    return mid*0.995, mid, mid*1.005
+            w = dte_weight(r["dte"])
+            total += d * r["oi"] * w
+
+        net_deltas.append(total)
+
+    net_deltas = np.array(net_deltas)
+
+    idx = np.argmin(np.abs(net_deltas))
+    dnz_mid = prices[idx]
+
+    # dynamiczny zakres DNZ (nie sztywny!)
+    width = (prices.max() - prices.min()) * 0.005
+
+    return dnz_mid - width, dnz_mid, dnz_mid + width
 
 def run(symbol):
     spot, df = load_options(symbol)
