@@ -9,6 +9,7 @@ SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 SUMMARY_SHEET = "daily_summary"
 
+
 def get_client():
     creds_json = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
     scopes = [
@@ -18,12 +19,24 @@ def get_client():
     creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
     return gspread.authorize(creds)
 
+
+# 🔴 KLUCZOWA POPRAWKA – ODPORNE WCZYTYWANIE SHEETS
 def load_raw():
     gc = get_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(RAW_SHEET)
-    data = ws.get_all_records()
-    return pd.DataFrame(data)
+
+    values = ws.get_all_values()
+
+    if len(values) < 2:
+        return pd.DataFrame()
+
+    headers = [h.strip().lower() for h in values[0]]
+    rows = values[1:]
+
+    df = pd.DataFrame(rows, columns=headers)
+
+    return df
 
 
 def add_days_to_close(df):
@@ -35,7 +48,8 @@ def add_days_to_close(df):
 def update_forward_closes(df):
     df = df.copy()
 
-    df["date_dt"] = pd.to_datetime(df["date"])
+    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date_dt"])
     df = df.sort_values(["symbol", "date_dt"])
 
     for symbol, g in df.groupby("symbol"):
@@ -51,6 +65,7 @@ def update_forward_closes(df):
     df.drop(columns=["date_dt"], inplace=True)
     return df
 
+
 def compute_forward_returns(df):
     df = df.copy()
 
@@ -59,14 +74,15 @@ def compute_forward_returns(df):
         ret_col = f"ret_t+{n}"
 
         df[ret_col] = ""
+
         mask = df[close_col].notna() & (df[close_col] != "")
         df.loc[mask, ret_col] = (
-            df.loc[mask, close_col].astype(float) / df.loc[mask, "spot"].astype(float) - 1
+            df.loc[mask, close_col].astype(float)
+            / df.loc[mask, "spot"].astype(float)
+            - 1
         )
 
     return df
-
-
 
 
 def write_back_forward_closes(df):
@@ -78,23 +94,22 @@ def write_back_forward_closes(df):
     headers = ws.row_values(1)
     df_sheet = pd.DataFrame(records)
 
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         mask = (
-            (df_sheet["date"] == row["date"]) &
-            (df_sheet["symbol"] == row["symbol"])
+            (df_sheet["date"] == row["date"])
+            & (df_sheet["symbol"] == row["symbol"])
         )
 
         if not mask.any():
             continue
 
-        sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
+        sheet_row = df_sheet[mask].index[0] + 2
 
         for col in [
-    "close_t+1", "close_t+2", "close_t+5",
-    "ret_t+1", "ret_t+2", "ret_t+5",
-    "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
-]:
-
+            "close_t+1", "close_t+2", "close_t+5",
+            "ret_t+1", "ret_t+2", "ret_t+5",
+            "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
+        ]:
             if col in headers and pd.notna(row[col]) and row[col] != "":
                 ws.update_cell(
                     sheet_row,
@@ -106,6 +121,9 @@ def write_back_forward_closes(df):
 def daily_summary(df):
     today = datetime.utcnow().strftime("%Y-%m-%d")
     today_df = df[df["date"] == today]
+
+    if today_df.empty:
+        return None
 
     counts = today_df["regime"].value_counts()
     dominant = counts.idxmax()
@@ -120,6 +138,9 @@ def daily_summary(df):
 
 
 def write_summary(summary):
+    if not summary:
+        return
+
     gc = get_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(SUMMARY_SHEET)
@@ -129,10 +150,13 @@ def write_summary(summary):
 
     ws.append_row(list(summary.values()))
 
+
 def main():
     df = load_raw()
 
-    if df.empty or "symbol" not in df.columns:
+    print("RAW_DAILY columns:", df.columns.tolist())
+
+    if df.empty or "symbol" not in df.columns or "date" not in df.columns:
         print("No valid raw data yet — skipping postprocess")
         return
 
@@ -143,7 +167,6 @@ def main():
 
     summary = daily_summary(df)
     write_summary(summary)
-
 
 
 if __name__ == "__main__":
