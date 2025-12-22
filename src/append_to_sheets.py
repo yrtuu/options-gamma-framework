@@ -39,8 +39,18 @@ SCHEMA = [
     "close_t+1",
     "close_t+2",
     "close_t+5",
+
+    "ret_t+1",
+    "ret_t+2",
+    "ret_t+5",
+
+    "days_to_close_t+1",
+    "days_to_close_t+2",
+    "days_to_close_t+5",
+
     "event_flag",
 ]
+
 
 
 
