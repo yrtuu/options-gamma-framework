@@ -33,6 +33,7 @@ SCHEMA = [
     "gamma_asym_strength",
 
     "effective_gamma_pressure",
+    "egp_normalized",
     "gamma_peak_price",
     "gamma_concentration",
     "gamma_distance_from_spot",
