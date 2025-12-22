@@ -25,29 +25,47 @@ def load_raw():
     data = ws.get_all_records()
     return pd.DataFrame(data)
 
+
+def add_days_to_close(df):
+    for n in [1, 2, 5]:
+        df[f"days_to_close_t+{n}"] = n
+    return df
+
+
 def update_forward_closes(df):
     df = df.copy()
 
     df["date_dt"] = pd.to_datetime(df["date"])
+    df = df.sort_values(["symbol", "date_dt"])
 
-    for idx, row in df.iterrows():
-        base_date = row["date_dt"]
-        symbol = row["symbol"]
+    for symbol, g in df.groupby("symbol"):
+        g = g.reset_index()
 
-        for days, col in [(1, "close_t+1"), (2, "close_t+2"), (5, "close_t+5")]:
-            target_date = (base_date + timedelta(days=days)).strftime("%Y-%m-%d")
+        for i, row in g.iterrows():
+            base_idx = row["index"]
 
-            future_row = df[
-                (df["date"] == target_date) &
-                (df["symbol"] == symbol)
-            ]
-
-            if not future_row.empty:
-                close_price = future_row.iloc[0]["spot"]
-                df.at[idx, col] = close_price
+            for n, col in [(1, "close_t+1"), (2, "close_t+2"), (5, "close_t+5")]:
+                if i + n < len(g):
+                    df.at[base_idx, col] = g.loc[i + n, "spot"]
 
     df.drop(columns=["date_dt"], inplace=True)
     return df
+
+def compute_forward_returns(df):
+    df = df.copy()
+
+    for n in [1, 2, 5]:
+        close_col = f"close_t+{n}"
+        ret_col = f"ret_t+{n}"
+
+        df[ret_col] = ""
+        mask = df[close_col].notna() & (df[close_col] != "")
+        df.loc[mask, ret_col] = (
+            df.loc[mask, close_col].astype(float) / df.loc[mask, "spot"].astype(float) - 1
+        )
+
+    return df
+
 
 
 
@@ -71,7 +89,12 @@ def write_back_forward_closes(df):
 
         sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
 
-        for col in ["close_t+1", "close_t+2", "close_t+5"]:
+        for col in [
+    "close_t+1", "close_t+2", "close_t+5",
+    "ret_t+1", "ret_t+2", "ret_t+5",
+    "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
+]:
+
             if col in headers and pd.notna(row[col]) and row[col] != "":
                 ws.update_cell(
                     sheet_row,
@@ -114,6 +137,8 @@ def main():
         return
 
     df = update_forward_closes(df)
+    df = compute_forward_returns(df)
+    df = add_days_to_close(df)
     write_back_forward_closes(df)
 
     summary = daily_summary(df)
