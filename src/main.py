@@ -80,6 +80,40 @@ def compute_greeks(df, spot):
     df["gamma_exp"] = gammas
     return df
 
+def compute_gamma_profile(df, spot):
+    # gamma per strike
+    gamma_by_strike = (
+        df.groupby("strike")["gamma_exp"]
+        .sum()
+        .sort_index()
+    )
+
+    if gamma_by_strike.empty:
+        return {
+            "gamma_peak_price": np.nan,
+            "gamma_concentration": 0.0,
+            "gamma_distance_from_spot": 0.0,
+        }
+
+    # peak gamma
+    gamma_peak_price = gamma_by_strike.abs().idxmax()
+
+    total_gamma = gamma_by_strike.abs().sum()
+
+    # concentration: top 3 strikes
+    top_gamma = gamma_by_strike.abs().nlargest(3).sum()
+    gamma_concentration = top_gamma / total_gamma if total_gamma != 0 else 0.0
+
+    # distance from spot (normalized)
+    gamma_distance_from_spot = (gamma_peak_price - spot) / spot
+
+    return {
+        "gamma_peak_price": gamma_peak_price,
+        "gamma_concentration": gamma_concentration,
+        "gamma_distance_from_spot": gamma_distance_from_spot,
+    }
+
+
 def find_dnz(df, spot):
     prices = np.linspace(spot * 0.9, spot * 1.1, 200)
     net_deltas = []
@@ -116,6 +150,38 @@ def find_dnz(df, spot):
 
     return dnz_mid - width, dnz_mid, dnz_mid + width
 
+def compute_effective_gamma_pressure(df, spot, eps_pct=0.002):
+    eps = spot * eps_pct
+
+    def net_delta_at_price(p):
+        total = 0.0
+        for _, r in df.iterrows():
+            flag = "c" if r["type"] == "call" else "p"
+            try:
+                d = delta(
+                    flag,
+                    p,
+                    r["strike"],
+                    r["dte"] / 365,
+                    RISK_FREE,
+                    r["iv"],
+                )
+            except:
+                d = 0.0
+
+            w = dte_weight(r["dte"])
+            total += d * r["oi"] * w
+        return total
+
+    delta_up = net_delta_at_price(spot + eps)
+    delta_down = net_delta_at_price(spot - eps)
+
+    egp = abs(delta_up - delta_down) / (2 * eps)
+
+    return egp
+
+
+
 def run(symbol):
     spot, df = load_options(symbol)
     if df.empty:
@@ -135,6 +201,8 @@ def run(symbol):
 
     
     dnz_low, dnz_mid, dnz_high = find_dnz(df, spot)
+    effective_gamma_pressure = compute_effective_gamma_pressure(df, spot)
+
     # --- SPOT POSITION IN DNZ ---
     dnz_range = dnz_high - dnz_low
     spot_position = (spot - dnz_mid) / dnz_range if dnz_range != 0 else 0.0
@@ -169,7 +237,9 @@ def run(symbol):
     "gamma_diff": gamma_diff,
     "gamma_ratio": gamma_ratio,
     "gamma_asym_strength": gamma_asym_strength,
+    "effective_gamma_pressure": effective_gamma_pressure,
 
+    
     "close_t+1": "",
     "close_t+2": "",
     "close_t+5": "",
@@ -201,7 +271,9 @@ def run(symbol):
         "gamma_diff",
         "gamma_ratio",
         "gamma_asym_strength",
+        "effective_gamma_pressure",
 
+        
         "close_t+1",
         "close_t+2",
         "close_t+5",
