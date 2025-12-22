@@ -70,12 +70,31 @@ def append_csv(path):
     if ws.get_all_values() == []:
         ws.append_row(SCHEMA)
 
-    # --- GUARD: NIE DUPLIKUJ (date, symbol) ---
-    existing = ws.get_all_records()
-    if existing:
-        existing_keys = {(r["date"], r["symbol"]) for r in existing}
+       # --- GUARD: NIE DUPLIKUJ (date, symbol) ---
+    rows = ws.get_all_values()
+
+    if len(rows) > 1:
+        header = rows[0]
+
+        try:
+            date_idx = header.index("date")
+            symbol_idx = header.index("symbol")
+        except ValueError:
+            raise RuntimeError(
+                f"Header mismatch. Found headers: {header}"
+            )
+
+        existing_keys = {
+            (r[date_idx], r[symbol_idx])
+            for r in rows[1:]
+            if len(r) > max(date_idx, symbol_idx)
+        }
+
         df = df[
-            ~df.apply(lambda r: (r["date"], r["symbol"]) in existing_keys, axis=1)
+            ~df.apply(
+                lambda r: (str(r["date"]), str(r["symbol"])) in existing_keys,
+                axis=1,
+            )
         ]
 
     # jeśli po guardzie nic nie zostało → exit
