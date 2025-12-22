@@ -1,4 +1,4 @@
-import os
+ import os
 import json
 import gspread
 import pandas as pd
@@ -62,37 +62,37 @@ def append_csv(path):
     df = pd.read_csv(path)
     df = df[SCHEMA]
 
-    # --- HEADER CONTRACT ---
+    # --- READ SHEET ---
     values = ws.get_all_values()
 
-# CASE 1: arkusz istnieje, ale jest kompletnie pusty
-if len(values) == 0:
-    ws.append_row(SCHEMA)
-    header = SCHEMA
-    existing_keys = set()
+    # CASE 1: arkusz pusty
+    if len(values) == 0:
+        ws.append_row(SCHEMA)
+        header = SCHEMA
+        existing_keys = set()
 
-# CASE 2: arkusz ma tylko 1 wiersz, ale pusty (czasem Sheets tak zwraca)
-elif len(values) == 1 and all(v == "" for v in values[0]):
-    ws.update("A1", [SCHEMA])
-    header = SCHEMA
-    existing_keys = set()
+    # CASE 2: jeden pusty wiersz
+    elif len(values) == 1 and all(v == "" for v in values[0]):
+        ws.update("A1", [SCHEMA])
+        header = SCHEMA
+        existing_keys = set()
 
-# CASE 3: normalny arkusz
-else:
-    header = [h.strip() for h in values[0]]
-    if header != SCHEMA:
-        raise RuntimeError(
-            f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
-        )
+    # CASE 3: normalny arkusz
+    else:
+        header = [h.strip() for h in values[0]]
+        if header != SCHEMA:
+            raise RuntimeError(
+                f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
+            )
 
-    date_idx = header.index("date")
-    symbol_idx = header.index("symbol")
+        date_idx = header.index("date")
+        symbol_idx = header.index("symbol")
 
-    existing_keys = {
-        (r[date_idx], r[symbol_idx])
-        for r in values[1:]
-        if len(r) > max(date_idx, symbol_idx)
-    }
+        existing_keys = {
+            (r[date_idx], r[symbol_idx])
+            for r in values[1:]
+            if len(r) > max(date_idx, symbol_idx)
+        }
 
     # --- DUPLICATE GUARD ---
     rows_to_add = []
@@ -105,11 +105,11 @@ else:
         print(f"[SKIP] {path} — no new rows")
         return
 
-    # --- SANITY CLEANING ---
+    # --- SANITY CLEAN ---
     clean_rows = []
     for row in rows_to_add:
         clean_rows.append([
-            "" if pd.isna(x) or x == float("inf") or x == float("-inf") else x
+            "" if pd.isna(x) or x in [float("inf"), float("-inf")] else x
             for x in row
         ])
 
