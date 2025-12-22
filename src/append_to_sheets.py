@@ -64,16 +64,26 @@ def append_csv(path):
     ws = sh.worksheet(SHEET_NAME)
 
     df = pd.read_csv(path)
-
-   
-    # --- WYMUSZAMY SCHEMAT ---
     df = df[SCHEMA]
 
-    # --- HEADER (tylko raz) ---
+    # --- HEADER ---
     if ws.get_all_values() == []:
         ws.append_row(SCHEMA)
 
-    # --- SANITY CLEANING FOR GOOGLE SHEETS ---
+    # --- GUARD: NIE DUPLIKUJ (date, symbol) ---
+    existing = ws.get_all_records()
+    if existing:
+        existing_keys = {(r["date"], r["symbol"]) for r in existing}
+        df = df[
+            ~df.apply(lambda r: (r["date"], r["symbol"]) in existing_keys, axis=1)
+        ]
+
+    # jeśli po guardzie nic nie zostało → exit
+    if df.empty:
+        print("No new rows to append")
+        return
+
+    # --- SANITY CLEANING ---
     df = df.replace([float("inf"), float("-inf")], "")
     df = df.fillna("")
 
