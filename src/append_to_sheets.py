@@ -77,7 +77,7 @@ def append_csv(path):
     df = df.replace([float("inf"), float("-inf")], "")
     df = df.fillna("")
 
-    ws.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
+    ws.append_rows(df.values.tolist(), value_input_option="RAW")
 
 if __name__ == "__main__":
     today = datetime.utcnow().strftime("%Y-%m-%d")
