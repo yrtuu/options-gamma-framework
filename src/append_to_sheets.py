@@ -65,25 +65,34 @@ def append_csv(path):
     # --- HEADER CONTRACT ---
     values = ws.get_all_values()
 
-    if not values:
-        ws.append_row(SCHEMA)
-        header = SCHEMA
-        existing_keys = set()
-    else:
-        header = [h.strip() for h in values[0]]
-        if header != SCHEMA:
-            raise RuntimeError(
-                f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
-            )
+# CASE 1: arkusz istnieje, ale jest kompletnie pusty
+if len(values) == 0:
+    ws.append_row(SCHEMA)
+    header = SCHEMA
+    existing_keys = set()
 
-        date_idx = header.index("date")
-        symbol_idx = header.index("symbol")
+# CASE 2: arkusz ma tylko 1 wiersz, ale pusty (czasem Sheets tak zwraca)
+elif len(values) == 1 and all(v == "" for v in values[0]):
+    ws.update("A1", [SCHEMA])
+    header = SCHEMA
+    existing_keys = set()
 
-        existing_keys = {
-            (r[date_idx], r[symbol_idx])
-            for r in values[1:]
-            if len(r) > max(date_idx, symbol_idx)
-        }
+# CASE 3: normalny arkusz
+else:
+    header = [h.strip() for h in values[0]]
+    if header != SCHEMA:
+        raise RuntimeError(
+            f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
+        )
+
+    date_idx = header.index("date")
+    symbol_idx = header.index("symbol")
+
+    existing_keys = {
+        (r[date_idx], r[symbol_idx])
+        for r in values[1:]
+        if len(r) > max(date_idx, symbol_idx)
+    }
 
     # --- DUPLICATE GUARD ---
     rows_to_add = []
