@@ -25,29 +25,39 @@ def load_raw():
     data = ws.get_all_records()
     return pd.DataFrame(data)
 
-def update_close_t1(df):
-    today = datetime.utcnow().date()
-    yesterday = today - timedelta(days=1)
+def update_forward_closes(df):
+    df = df.copy()
 
-    for symbol in df["symbol"].unique():
-        today_row = df[(df["date"] == str(today)) & (df["symbol"] == symbol)]
-        y_row = df[(df["date"] == str(yesterday)) & (df["symbol"] == symbol)]
+    df["date_dt"] = pd.to_datetime(df["date"])
 
-        if not today_row.empty and not y_row.empty:
-            close = today_row.iloc[0]["spot"]
-            df.loc[y_row.index, "close_t+1"] = close
+    for idx, row in df.iterrows():
+        base_date = row["date_dt"]
+        symbol = row["symbol"]
 
+        for days, col in [(1, "close_t+1"), (2, "close_t+2"), (5, "close_t+5")]:
+            target_date = (base_date + timedelta(days=days)).strftime("%Y-%m-%d")
+
+            future_row = df[
+                (df["date"] == target_date) &
+                (df["symbol"] == symbol)
+            ]
+
+            if not future_row.empty:
+                close_price = future_row.iloc[0]["spot"]
+                df.at[idx, col] = close_price
+
+    df.drop(columns=["date_dt"], inplace=True)
     return df
 
 
-def write_back_close_t1(df):
+
+def write_back_forward_closes(df):
     gc = get_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(RAW_SHEET)
 
     records = ws.get_all_records()
     headers = ws.row_values(1)
-
     df_sheet = pd.DataFrame(records)
 
     for idx, row in df.iterrows():
@@ -55,13 +65,19 @@ def write_back_close_t1(df):
             (df_sheet["date"] == row["date"]) &
             (df_sheet["symbol"] == row["symbol"])
         )
-        if mask.any():
-            sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
-            ws.update_cell(
-                sheet_row,
-                headers.index("close_t+1") + 1,
-                row["close_t+1"]
-            )
+
+        if not mask.any():
+            continue
+
+        sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
+
+        for col in ["close_t+1", "close_t+2", "close_t+5"]:
+            if col in headers and pd.notna(row[col]) and row[col] != "":
+                ws.update_cell(
+                    sheet_row,
+                    headers.index(col) + 1,
+                    row[col]
+                )
 
 
 def daily_summary(df):
@@ -97,11 +113,12 @@ def main():
         print("No valid raw data yet — skipping postprocess")
         return
 
-    df = update_close_t1(df)
-    write_back_close_t1(df)
+    df = update_forward_closes(df)
+    write_back_forward_closes(df)
 
     summary = daily_summary(df)
     write_summary(summary)
+
 
 
 if __name__ == "__main__":
