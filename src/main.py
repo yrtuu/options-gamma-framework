@@ -292,9 +292,19 @@ def run(symbol):
     ]
 ]
 
+# --- FORCE DOT DECIMAL (CRITICAL FIX) ---
+for col in out.columns:
+    if pd.api.types.is_numeric_dtype(out[col]):
+        out[col] = out[col].astype(float)
+
+# --- SAVE CSV WITH DOT DECIMAL ---
+out.to_csv(
+    f"data/snapshots/{today}_{symbol}.csv",
+    index=False,
+    float_format="%.10f"
+)
 
 
-    out.to_csv(f"data/snapshots/{today}_{symbol}.csv", index=False)
 if __name__ == "__main__":
     for s in SYMBOLS:
         run(s)
