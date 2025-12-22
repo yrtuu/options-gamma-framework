@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 
-
 SPREADSHEET_NAME = "Options Gamma Log"
 SHEET_NAME = "raw_daily"
 
@@ -45,10 +44,6 @@ SCHEMA = [
     "event_flag",
 ]
 
-
-
-
-
 def get_client():
     creds_json = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
     scopes = [
@@ -63,50 +58,58 @@ def append_csv(path):
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(SHEET_NAME)
 
+    # --- LOAD CSV ---
     df = pd.read_csv(path)
     df = df[SCHEMA]
 
-    # --- HEADER ---
-    if ws.get_all_values() == []:
+    # --- HEADER CONTRACT ---
+    values = ws.get_all_values()
+
+    if not values:
         ws.append_row(SCHEMA)
-
-       # --- GUARD: NIE DUPLIKUJ (date, symbol) ---
-    rows = ws.get_all_values()
-
-    if len(rows) > 1:
-        header = rows[0]
-
-        try:
-            date_idx = header.index("date")
-            symbol_idx = header.index("symbol")
-        except ValueError:
+        header = SCHEMA
+        existing_keys = set()
+    else:
+        header = [h.strip() for h in values[0]]
+        if header != SCHEMA:
             raise RuntimeError(
-                f"Header mismatch. Found headers: {header}"
+                f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
             )
+
+        date_idx = header.index("date")
+        symbol_idx = header.index("symbol")
 
         existing_keys = {
             (r[date_idx], r[symbol_idx])
-            for r in rows[1:]
+            for r in values[1:]
             if len(r) > max(date_idx, symbol_idx)
         }
 
-        df = df[
-            ~df.apply(
-                lambda r: (str(r["date"]), str(r["symbol"])) in existing_keys,
-                axis=1,
-            )
-        ]
+    # --- DUPLICATE GUARD ---
+    rows_to_add = []
+    for _, r in df.iterrows():
+        key = (str(r["date"]), str(r["symbol"]))
+        if key not in existing_keys:
+            rows_to_add.append(r.tolist())
 
-    # jeśli po guardzie nic nie zostało → exit
-    if df.empty:
-        print("No new rows to append")
+    if not rows_to_add:
+        print(f"[SKIP] {path} — no new rows")
         return
 
     # --- SANITY CLEANING ---
-    df = df.replace([float("inf"), float("-inf")], "")
-    df = df.fillna("")
+    clean_rows = []
+    for row in rows_to_add:
+        clean_rows.append([
+            "" if pd.isna(x) or x == float("inf") or x == float("-inf") else x
+            for x in row
+        ])
 
-    ws.append_rows(df.values.tolist(), value_input_option="USER_ENTERED")
+    ws.append_rows(
+        clean_rows,
+        value_input_option="USER_ENTERED",
+    )
+
+    print(f"[OK] Appended {len(clean_rows)} rows from {path}")
 
 if __name__ == "__main__":
     today = datetime.utcnow().strftime("%Y-%m-%d")
