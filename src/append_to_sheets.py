@@ -18,6 +18,7 @@ SCHEMA = [
     "dnz_low",
     "dnz_mid",
     "dnz_high",
+    "dnz_width",
     "spot_position",
 
     "spot_bucket",
