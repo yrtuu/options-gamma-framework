@@ -8,39 +8,34 @@ from google.oauth2.service_account import Credentials
 SPREADSHEET_NAME = "Options Gamma Log"
 SHEET_NAME = "raw_daily"
 
-SCHEMA = [
+# ⬇️ tylko KOLUMNY PRODUKOWANE PRZEZ main.py
+BASE_SCHEMA = [
     "date",
     "week",
     "symbol",
     "spot",
-
     "dnz_low",
     "dnz_mid",
     "dnz_high",
     "dnz_width",
     "spot_position",
-
     "spot_bucket",
     "gamma_bucket",
     "regime",
-
     "gamma_above",
     "gamma_below",
     "gamma_total",
     "gamma_diff",
     "gamma_ratio",
     "gamma_asym_strength",
-
     "effective_gamma_pressure",
     "egp_normalized",
     "gamma_peak_price",
     "gamma_concentration",
     "gamma_distance_from_spot",
-
     "close_t+1",
     "close_t+2",
     "close_t+5",
-
     "event_flag",
 ]
 
@@ -58,35 +53,32 @@ def append_csv(path):
     sh = gc.open(SPREADSHEET_NAME)
     ws = sh.worksheet(SHEET_NAME)
 
-    # --- LOAD CSV ---
     df = pd.read_csv(path)
-    df = df[SCHEMA]
 
-    # --- READ SHEET ---
+    # 🔒 upewnij się, że CSV ma wymagane kolumny
+    missing = [c for c in BASE_SCHEMA if c not in df.columns]
+    if missing:
+        raise RuntimeError(f"CSV missing columns: {missing}")
+
+    df = df[BASE_SCHEMA]
+
     values = ws.get_all_values()
 
-    # CASE 1: arkusz pusty
-    if len(values) == 0:
-        ws.append_row(SCHEMA)
-        header = SCHEMA
+    # --- INIT SHEET ---
+    if not values:
+        ws.append_row(BASE_SCHEMA)
+        sheet_header = BASE_SCHEMA
         existing_keys = set()
-
-    # CASE 2: jeden pusty wiersz
-    elif len(values) == 1 and all(v == "" for v in values[0]):
-        ws.update("A1", [SCHEMA])
-        header = SCHEMA
-        existing_keys = set()
-
-    # CASE 3: normalny arkusz
     else:
-        header = [h.strip() for h in values[0]]
-        if header != SCHEMA:
-            raise RuntimeError(
-                f"Header mismatch.\nExpected: {SCHEMA}\nFound: {header}"
-            )
+        sheet_header = [h.strip() for h in values[0]]
 
-        date_idx = header.index("date")
-        symbol_idx = header.index("symbol")
+        # 🔴 KLUCZOWA ZMIANA: NIE WYMAGAMY RÓWNOŚCI
+        for col in BASE_SCHEMA:
+            if col not in sheet_header:
+                raise RuntimeError(f"Sheet missing required column: {col}")
+
+        date_idx = sheet_header.index("date")
+        symbol_idx = sheet_header.index("symbol")
 
         existing_keys = {
             (r[date_idx], r[symbol_idx])
@@ -99,30 +91,19 @@ def append_csv(path):
     for _, r in df.iterrows():
         key = (str(r["date"]), str(r["symbol"]))
         if key not in existing_keys:
-            rows_to_add.append(r.tolist())
+            # ⬇️ wypełniamy tylko kolumny BASE_SCHEMA
+            row = [r.get(col, "") for col in sheet_header]
+            rows_to_add.append(row)
 
     if not rows_to_add:
         print(f"[SKIP] {path} — no new rows")
         return
 
-    # --- SANITY CLEAN ---
-    clean_rows = []
-    for row in rows_to_add:
-        clean_rows.append([
-            "" if pd.isna(x) or x in [float("inf"), float("-inf")] else x
-            for x in row
-        ])
-
-    ws.append_rows(
-        clean_rows,
-        value_input_option="USER_ENTERED",
-    )
-
-    print(f"[OK] Appended {len(clean_rows)} rows from {path}")
+    ws.append_rows(rows_to_add, value_input_option="USER_ENTERED")
+    print(f"[OK] Appended {len(rows_to_add)} rows from {path}")
 
 if __name__ == "__main__":
     today = datetime.utcnow().strftime("%Y-%m-%d")
-
     for file in os.listdir("data/snapshots"):
         if file.startswith(today) and file.endswith(".csv"):
             append_csv(f"data/snapshots/{file}")
