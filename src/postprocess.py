@@ -82,8 +82,7 @@ def compute_forward_returns(df):
             - 1
         )
 
-    return df
-
+    return df. 
 
 def write_back_forward_closes(df):
     gc = get_client()
@@ -92,11 +91,12 @@ def write_back_forward_closes(df):
 
     records = ws.get_all_records()
     df_sheet = pd.DataFrame(records)
-
-    # 🔴 KLUCZOWA LINIA — NORMALIZACJA NAGŁÓWKÓW
     df_sheet.columns = [c.strip().lower() for c in df_sheet.columns]
 
-    headers = [h.strip().lower() for h in ws.row_values(1)]
+    headers = ws.row_values(1)
+    headers_l = [h.lower() for h in headers]
+
+    update_rows = []
 
     for _, row in df.iterrows():
         mask = (
@@ -107,39 +107,28 @@ def write_back_forward_closes(df):
         if not mask.any():
             continue
 
-        sheet_row = df_sheet[mask].index[0] + 2  # +2 bo header
+        sheet_row = df_sheet[mask].index[0] + 2
+
+        updated = ws.row_values(sheet_row)
+        updated += [""] * (len(headers) - len(updated))
 
         for col in [
             "close_t+1", "close_t+2", "close_t+5",
             "ret_t+1", "ret_t+2", "ret_t+5",
             "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
         ]:
-            if col in headers and pd.notna(row[col]) and row[col] != "":
-                ws.update_cell(
-                    sheet_row,
-                    headers.index(col) + 1,
-                    row[col]
-                )
+            if col in headers_l:
+                idx = headers_l.index(col)
+                val = row[col]
+                if val != "" and pd.notna(val):
+                    updated[idx] = val
 
+        update_rows.append((sheet_row, updated))
 
-def daily_summary(df):
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    today_df = df[df["date"] == today]
-
-    if today_df.empty:
-        return None
-
-    counts = today_df["regime"].value_counts()
-    dominant = counts.idxmax()
-    share = counts.max() / counts.sum()
-
-    return {
-        "date": today,
-        "dominant_regime": dominant,
-        "share": round(share, 2),
-        "symbols": counts.sum(),
-    }
-
+    # 🔴 JEDEN REQUEST NA WIERSZ (a nie na komórkę)
+    for r, values in update_rows:
+        ws.update(f"A{r}", [values], value_input_option="USER_ENTERED")   
+ 
 
 def write_summary(summary):
     gc = get_client()
