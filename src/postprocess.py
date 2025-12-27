@@ -82,7 +82,7 @@ def compute_forward_returns(df):
             - 1
         )
 
-    return df. 
+    return df
 
 def write_back_forward_closes(df):
     gc = get_client()
