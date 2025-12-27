@@ -165,7 +165,7 @@ def main():
     df = add_days_to_close(df)
     write_back_forward_closes(df)
 
-    summary = daily_summary(df)
+    
     write_summary(summary)
 
 
