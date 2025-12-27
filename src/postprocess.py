@@ -166,7 +166,7 @@ def main():
     write_back_forward_closes(df)
 
     
-    write_summary(summary)
+    
 
 
 if __name__ == "__main__":
