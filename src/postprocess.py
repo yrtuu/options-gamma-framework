@@ -38,24 +38,37 @@ def load_raw():
     return df, ws, headers
 
 
+# ================= LOAD SUMMARY =================
+def load_summary_df():
+    gc = get_client()
+    ws = gc.open(SPREADSHEET_NAME).worksheet(SUMMARY_SHEET)
+
+    values = ws.get_all_values()
+    if len(values) < 2:
+        return pd.DataFrame(), ws
+
+    headers = [h.strip().lower() for h in values[0]]
+    rows = values[1:]
+
+    df = pd.DataFrame(rows, columns=headers)
+    return df, ws
+
+
 # ================= FORWARD METRICS =================
 def enrich_forward_metrics(df):
     df = df.copy()
 
-    # --- typing ---
     df["spot"] = pd.to_numeric(df["spot"], errors="coerce")
     df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
 
     df = df.dropna(subset=["spot", "date_dt"])
     df = df.sort_values(["symbol", "date_dt"])
 
-    # --- ensure columns ---
     for n in [1, 2, 5]:
         for col in [f"close_t+{n}", f"ret_t+{n}", f"days_to_close_t+{n}"]:
             if col not in df.columns:
                 df[col] = ""
 
-    # --- compute forward values ---
     for symbol, g in df.groupby("symbol"):
         g = g.reset_index()
 
@@ -68,31 +81,28 @@ def enrich_forward_metrics(df):
 
                 future_spot = g.loc[i + n, "spot"]
 
-                # close
                 if df.at[base_idx, f"close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"close_t+{n}"] = future_spot
 
-                # return
                 try:
                     if df.at[base_idx, f"ret_t+{n}"] in ["", None]:
                         df.at[base_idx, f"ret_t+{n}"] = future_spot / row["spot"] - 1
                 except Exception:
                     pass
 
-                # horizon
                 if df.at[base_idx, f"days_to_close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"days_to_close_t+{n}"] = n
 
     return df.drop(columns=["date_dt"])
 
 
-# ================= WRITE BACK (BATCH, SAFE) =================
+# ================= WRITE BACK RAW =================
 def batch_write(df, ws, headers):
     header_map = {h: i for i, h in enumerate(headers)}
     updates = []
 
     for idx, row in df.iterrows():
-        sheet_row = idx + 2  # header offset
+        sheet_row = idx + 2
 
         updated = ws.row_values(sheet_row)
         updated += [""] * (len(headers) - len(updated))
@@ -116,16 +126,20 @@ def batch_write(df, ws, headers):
     for r, values in updates:
         ws.update(f"A{r}", [values], value_input_option="USER_ENTERED")
 
-    print(f"[OK] Updated {len(updates)} rows")
+    print(f"[OK] Updated {len(updates)} raw rows")
 
 
-# ================= DAILY SUMMARY (GUARDED) =================
+# ================= DAILY SUMMARY (HARD GUARD) =================
 def write_daily_summary(df):
-    last_date = df["date"].max()
-    day_df = df[df["date"] == last_date]
+    df = df.copy()
+    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date_dt"])
+
+    last_market_date = df["date_dt"].max().date()
+    day_df = df[df["date_dt"].dt.date == last_market_date]
 
     if day_df.empty:
-        print("[SKIP] No data for summary")
+        print("[SKIP] No rows for last market date")
         return
 
     counts = day_df["regime"].value_counts()
@@ -133,30 +147,29 @@ def write_daily_summary(df):
     share = round(counts.max() / counts.sum(), 2)
     symbols = int(counts.sum())
 
-    gc = get_client()
-    ws = gc.open(SPREADSHEET_NAME).worksheet(SUMMARY_SHEET)
+    summary_df, ws = load_summary_df()
 
-    values = ws.get_all_values()
-    if not values:
+    if not summary_df.empty:
+        summary_df["date_dt"] = pd.to_datetime(summary_df["date"], errors="coerce")
+        last_summary_date = summary_df["date_dt"].max().date()
+
+        # 🔒 NAJWAŻNIEJSZY GUARD
+        if last_market_date <= last_summary_date:
+            print(f"[SKIP] No new market session (last={last_market_date})")
+            return
+
+    if ws.get_all_values() == []:
         ws.append_row(
             ["date", "dominant_regime", "share", "symbols"],
             value_input_option="RAW",
         )
-        values = ws.get_all_values()
-
-    existing_dates = [r[0] for r in values[1:] if r]
-
-    # 🔒 GUARD — NIE DUPLIKUJ
-    if last_date in existing_dates:
-        print(f"[SKIP] daily_summary already exists for {last_date}")
-        return
 
     ws.append_row(
-        [last_date, dominant, share, symbols],
+        [last_market_date.strftime("%Y-%m-%d"), dominant, share, symbols],
         value_input_option="RAW",
     )
 
-    print(f"[OK] daily_summary added for {last_date}")
+    print(f"[OK] daily_summary added for {last_market_date}")
 
 
 # ================= ENTRY =================
@@ -166,7 +179,7 @@ def main():
     print("RAW_DAILY columns:", headers)
 
     if df.empty or "date" not in df.columns or "symbol" not in df.columns:
-        print("No valid raw data — skipping postprocess")
+        print("[EXIT] No valid raw data")
         return
 
     df = enrich_forward_metrics(df)
