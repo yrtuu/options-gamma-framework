@@ -93,6 +93,15 @@ def enrich_forward_metrics(df):
                 if df.at[base_idx, f"days_to_close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"days_to_close_t+{n}"] = n
 
+   # ================= DATA QUALITY FLAG =================
+    MIN_SYMBOLS = 3
+
+    df["data_ok"] = (
+        df.groupby("date")["symbol"]
+          .transform("nunique")
+          .ge(MIN_SYMBOLS)
+    )
+
     return df.drop(columns=["date_dt"])
 
 
