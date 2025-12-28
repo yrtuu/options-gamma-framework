@@ -120,7 +120,7 @@ def batch_write(df, ws, headers):
             "close_t+1", "close_t+2", "close_t+5",
             "ret_t+1", "ret_t+2", "ret_t+5",
             "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
-        ]:
+      "data_ok",  ]:
             if col not in header_map:
                 continue
 
