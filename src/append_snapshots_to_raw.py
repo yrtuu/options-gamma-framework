@@ -10,6 +10,8 @@ SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 DATA_PATH = Path("data/snapshots")
 
+REQUIRED_COLUMNS = {"date", "symbol"}
+
 
 # ================= AUTH =================
 def get_client():
@@ -29,6 +31,10 @@ def load_existing_keys(ws):
         return set(), values[0] if values else []
 
     header = [h.strip().lower() for h in values[0]]
+
+    if "date" not in header or "symbol" not in header:
+        raise RuntimeError("RAW sheet must contain 'date' and 'symbol' columns")
+
     date_idx = header.index("date")
     symbol_idx = header.index("symbol")
 
@@ -63,14 +69,25 @@ def main():
     ws = sh.worksheet(RAW_SHEET)
 
     existing_keys, header = load_existing_keys(ws)
-
     rows_to_add = []
 
     for file in sorted(DATA_PATH.glob("*.csv")):
-        df = pd.read_csv(file)
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            print(f"[SKIP] {file.name} — cannot read CSV ({e})")
+            continue
 
         # --- normalize columns ---
         df.columns = [c.strip().lower() for c in df.columns]
+
+        # 🔒 HARD GUARD — tylko snapshoty rynkowe
+        if not REQUIRED_COLUMNS.issubset(df.columns):
+            print(
+                f"[SKIP] {file.name} — missing columns "
+                f"{REQUIRED_COLUMNS - set(df.columns)}"
+            )
+            continue
 
         for _, r in df.iterrows():
             key = (str(r["date"]), str(r["symbol"]))
