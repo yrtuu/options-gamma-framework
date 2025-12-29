@@ -6,11 +6,26 @@ import gspread
 from google.oauth2.service_account import Credentials
 from pathlib import Path
 
+
+# ================= CONFIG =================
 SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 DATA_PATH = Path("data/snapshots")
 
 REQUIRED_COLUMNS = {"date", "symbol"}
+
+EXPECTED_HEADER = [
+    "date", "week", "symbol", "spot",
+    "dnz_low", "dnz_mid", "dnz_high", "dnz_width",
+    "spot_position", "spot_bucket", "gamma_bucket", "regime",
+    "gamma_above", "gamma_below", "gamma_total", "gamma_diff", "gamma_ratio",
+    "gamma_asym_strength", "effective_gamma_pressure", "egp_normalized",
+    "gamma_peak_price", "gamma_concentration", "gamma_distance_from_spot",
+    "close_t+1", "close_t+2", "close_t+5",
+    "ret_t+1", "ret_t+2", "ret_t+5",
+    "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
+    "data_ok", "event_flag",
+]
 
 
 # ================= AUTH =================
@@ -24,17 +39,22 @@ def get_client():
     return gspread.authorize(creds)
 
 
-# ================= LOAD RAW KEYS & HEADER =================
+# ================= LOAD EXISTING RAW =================
 def load_existing_keys_and_header(ws):
     values = ws.get_all_values()
 
     if not values:
-        raise RuntimeError("RAW sheet is empty — header required")
+        raise RuntimeError("❌ RAW sheet is empty — header required")
 
     header = [h.strip().lower() for h in values[0]]
 
-    if "date" not in header or "symbol" not in header:
-        raise RuntimeError("RAW sheet must contain 'date' and 'symbol' columns")
+    # 🔒 HARD SCHEMA GUARD
+    if header != EXPECTED_HEADER:
+        raise RuntimeError(
+            "❌ RAW_DAILY SCHEMA DRIFT — STOP APPEND\n"
+            f"Expected: {EXPECTED_HEADER}\n"
+            f"Found:    {header}"
+        )
 
     date_idx = header.index("date")
     symbol_idx = header.index("symbol")
@@ -44,7 +64,10 @@ def load_existing_keys_and_header(ws):
         if len(r) > max(date_idx, symbol_idx):
             keys.add((r[date_idx], r[symbol_idx]))
 
-    return keys, header, len(values) + 1  # next free row
+    # next free row (1-indexed)
+    start_row = len(values) + 1
+
+    return keys, header, start_row
 
 
 # ================= CLEAN CELL =================
@@ -58,7 +81,7 @@ def clean_value(x):
     return x
 
 
-# ================= SAFE APPEND (NO COLUMN DRIFT) =================
+# ================= SAFE APPEND =================
 def append_rows_strict(ws, rows, header, start_row):
     col_map = {col: i + 1 for i, col in enumerate(header)}
     updates = []
@@ -90,7 +113,6 @@ def main():
     ws = gc.open(SPREADSHEET_NAME).worksheet(RAW_SHEET)
 
     existing_keys, header, start_row = load_existing_keys_and_header(ws)
-
     rows_to_add = []
 
     for file in sorted(DATA_PATH.glob("*.csv")):
@@ -102,7 +124,7 @@ def main():
 
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # 🔒 HARD GUARD — tylko snapshoty rynkowe
+        # 🔒 snapshot sanity check
         if not REQUIRED_COLUMNS.issubset(df.columns):
             print(
                 f"[SKIP] {file.name} — missing columns "
