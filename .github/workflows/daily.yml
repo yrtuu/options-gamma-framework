@@ -3,6 +3,7 @@ name: Daily run
 on:
   workflow_dispatch:
   schedule:
+    # 21:00 UTC = 22:00 CET (po zamknięciu rynku US)
     - cron: "0 21 * * *"
 
 jobs:
@@ -20,23 +21,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 1️⃣ CORE SNAPSHOT (IMMUTABLE)
+      # 1️⃣ CORE SNAPSHOT (IMMUTABLE FILES)
+      # zapisuje data/snapshots/YYYY-MM-DD_SYMBOL.csv
       - name: Run core pipeline
         run: python src/main.py
 
-      # 2️⃣ APPEND RAW DATA TO GOOGLE SHEETS
-      - name: Append data to Google Sheets
+      # 2️⃣ APPEND SNAPSHOTS → RAW_DAILY (⬅️ KLUCZOWY BRAKUJĄCY KROK)
+      # bierze CSV z data/snapshots i DODAJE do raw_daily
+      - name: Append snapshots to raw_daily
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        run: python src/append_to_sheets.py
+        run: python src/append_snapshots_to_raw.py
 
-      # 3️⃣ POSTPROCESS: T+1 + DAILY SUMMARY
-      - name: Postprocess & summary
+      # 3️⃣ POSTPROCESS: T+1, returns, data_ok, daily_summary
+      - name: Postprocess & daily summary
         env:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         run: python src/postprocess.py
 
-      # 4️⃣ OPTIONAL: ARCHIVE SNAPSHOTS
+      # 4️⃣ ARCHIVE SNAPSHOTS (DEBUG / AUDIT)
       - name: Upload snapshots
         uses: actions/upload-artifact@v4
         with:
