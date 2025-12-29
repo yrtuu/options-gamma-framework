@@ -24,11 +24,12 @@ def get_client():
     return gspread.authorize(creds)
 
 
-# ================= LOAD RAW KEYS =================
-def load_existing_keys(ws):
+# ================= LOAD RAW KEYS & HEADER =================
+def load_existing_keys_and_header(ws):
     values = ws.get_all_values()
-    if len(values) < 2:
-        return set(), values[0] if values else []
+
+    if not values:
+        raise RuntimeError("RAW sheet is empty — header required")
 
     header = [h.strip().lower() for h in values[0]]
 
@@ -38,13 +39,12 @@ def load_existing_keys(ws):
     date_idx = header.index("date")
     symbol_idx = header.index("symbol")
 
-    keys = {
-        (r[date_idx], r[symbol_idx])
-        for r in values[1:]
-        if len(r) > max(date_idx, symbol_idx)
-    }
+    keys = set()
+    for r in values[1:]:
+        if len(r) > max(date_idx, symbol_idx):
+            keys.add((r[date_idx], r[symbol_idx]))
 
-    return keys, header
+    return keys, header, len(values) + 1  # next free row
 
 
 # ================= CLEAN CELL =================
@@ -58,6 +58,28 @@ def clean_value(x):
     return x
 
 
+# ================= SAFE APPEND (NO COLUMN DRIFT) =================
+def append_rows_strict(ws, rows, header, start_row):
+    col_map = {col: i + 1 for i, col in enumerate(header)}
+    updates = []
+
+    for i, row in enumerate(rows):
+        sheet_row = start_row + i
+        for col, val in zip(header, row):
+            if val in ["", None]:
+                continue
+            updates.append({
+                "range": gspread.utils.rowcol_to_a1(sheet_row, col_map[col]),
+                "values": [[val]],
+            })
+
+    if updates:
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
+        print(f"[OK] Appended {len(rows)} new raw rows (schema-safe)")
+    else:
+        print("[OK] Nothing to append")
+
+
 # ================= MAIN =================
 def main():
     if not DATA_PATH.exists():
@@ -65,10 +87,10 @@ def main():
         return
 
     gc = get_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = sh.worksheet(RAW_SHEET)
+    ws = gc.open(SPREADSHEET_NAME).worksheet(RAW_SHEET)
 
-    existing_keys, header = load_existing_keys(ws)
+    existing_keys, header, start_row = load_existing_keys_and_header(ws)
+
     rows_to_add = []
 
     for file in sorted(DATA_PATH.glob("*.csv")):
@@ -78,7 +100,6 @@ def main():
             print(f"[SKIP] {file.name} — cannot read CSV ({e})")
             continue
 
-        # --- normalize columns ---
         df.columns = [c.strip().lower() for c in df.columns]
 
         # 🔒 HARD GUARD — tylko snapshoty rynkowe
@@ -106,8 +127,7 @@ def main():
         print("[OK] No new snapshot rows to append")
         return
 
-    ws.append_rows(rows_to_add, value_input_option="USER_ENTERED")
-    print(f"[OK] Appended {len(rows_to_add)} new raw rows")
+    append_rows_strict(ws, rows_to_add, header, start_row)
 
 
 if __name__ == "__main__":
