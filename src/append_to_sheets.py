@@ -122,33 +122,49 @@ def batch_write(df, ws, headers):
 
 # ================= DAILY SUMMARY =================
 def write_daily_summary(df):
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    today_df = df[df["date"] == today]
+    df = df.copy()
+    df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date_dt"])
 
-    if today_df.empty:
+    # ✅ REAL MARKET DATE (NOT "TODAY")
+    last_market_date = df["date_dt"].max().date()
+    day_df = df[df["date_dt"].dt.date == last_market_date]
+
+    if day_df.empty:
+        print("[SKIP] No rows for last market date")
         return
 
-    counts = today_df["regime"].value_counts()
+    counts = day_df["regime"].value_counts()
     dominant = counts.idxmax()
     share = round(counts.max() / counts.sum(), 2)
-
-    summary_row = [
-        today,
-        dominant,
-        share,
-        int(counts.sum()),
-    ]
+    symbols = int(counts.sum())
 
     gc = get_client()
     ws = gc.open(SPREADSHEET_NAME).worksheet(SUMMARY_SHEET)
 
-    if ws.get_all_values() == []:
+    values = ws.get_all_values()
+    if values:
+        existing_dates = {r[0] for r in values[1:] if r}
+        if last_market_date.strftime("%Y-%m-%d") in existing_dates:
+            print(f"[SKIP] daily_summary already exists for {last_market_date}")
+            return
+    else:
         ws.append_row(
             ["date", "dominant_regime", "share", "symbols"],
             value_input_option="RAW",
         )
 
-    ws.append_row(summary_row, value_input_option="RAW")
+    ws.append_row(
+        [
+            last_market_date.strftime("%Y-%m-%d"),
+            dominant,
+            share,
+            symbols,
+        ],
+        value_input_option="RAW",
+    )
+
+    print(f"[OK] daily_summary added for {last_market_date}")
 
 
 # ================= ENTRY =================
