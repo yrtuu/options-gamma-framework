@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # 21:00 UTC = 22:00 CET (po zamknięciu rynku US)
-    - cron: "0 21 * * *"
+    - cron: "0 20 * * *"
 
 jobs:
   run:
