@@ -36,6 +36,7 @@ def resolve_event_phase(market_date, events):
             return "PRE_EVENT"
     return "POST_EVENT"
 
+
 SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 SUMMARY_SHEET = "daily_summary"
@@ -52,7 +53,7 @@ def get_client():
     return gspread.authorize(creds)
 
 
-# ================= LOAD RAW (SAFE) =================
+# ================= LOAD RAW =================
 def load_raw():
     gc = get_client()
     ws = gc.open(SPREADSHEET_NAME).worksheet(RAW_SHEET)
@@ -123,13 +124,12 @@ def enrich_forward_metrics(df):
                 if df.at[base_idx, f"days_to_close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"days_to_close_t+{n}"] = n
 
-   # ================= DATA QUALITY FLAG =================
+    # ================= DATA QUALITY FLAG =================
     MIN_SYMBOLS = 3
-
     df["data_ok"] = (
         df.groupby("date")["symbol"]
-          .transform("nunique")
-          .ge(MIN_SYMBOLS)
+        .transform("nunique")
+        .ge(MIN_SYMBOLS)
     )
 
     return df.drop(columns=["date_dt"])
@@ -150,7 +150,9 @@ def batch_write(df, ws, headers):
             "close_t+1", "close_t+2", "close_t+5",
             "ret_t+1", "ret_t+2", "ret_t+5",
             "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
-      "data_ok",  ]:
+            "data_ok",
+            "is_event_day", "event_type", "event_phase",
+        ]:
             if col not in header_map:
                 continue
 
@@ -168,7 +170,7 @@ def batch_write(df, ws, headers):
     print(f"[OK] Updated {len(updates)} raw rows")
 
 
-# ================= DAILY SUMMARY (HARD GUARD) =================
+# ================= DAILY SUMMARY =================
 def write_daily_summary(df):
     df = df.copy()
     df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
@@ -191,8 +193,6 @@ def write_daily_summary(df):
     if not summary_df.empty:
         summary_df["date_dt"] = pd.to_datetime(summary_df["date"], errors="coerce")
         last_summary_date = summary_df["date_dt"].max().date()
-
-        # 🔒 NAJWAŻNIEJSZY GUARD
         if last_market_date <= last_summary_date:
             print(f"[SKIP] No new market session (last={last_market_date})")
             return
@@ -223,31 +223,27 @@ def main():
 
     df = enrich_forward_metrics(df)
 
-# ================= EVENT ENRICHMENT =================
-events = load_event_calendar()
+    # ================= EVENT ENRICHMENT =================
+    events = load_event_calendar()
 
-df["is_event_day"] = False
-df["event_type"] = "NONE"
-df["event_phase"] = "NONE"
+    df["is_event_day"] = False
+    df["event_type"] = "NONE"
+    df["event_phase"] = "NONE"
 
-for date, g in df.groupby("date"):
-    market_date = str(date)
+    for date, g in df.groupby("date"):
+        market_date = str(date)
 
-    is_event, event_type = resolve_event(
-        market_date, events
-    )
-    event_phase = resolve_event_phase(
-        market_date, events
-    )
+        is_event, event_type = resolve_event(market_date, events)
+        event_phase = resolve_event_phase(market_date, events)
 
-    idx = g.index
-    df.loc[idx, "is_event_day"] = is_event
-    df.loc[idx, "event_type"] = event_type
-    df.loc[idx, "event_phase"] = event_phase
-# ====================================================
+        idx = g.index
+        df.loc[idx, "is_event_day"] = is_event
+        df.loc[idx, "event_type"] = event_type
+        df.loc[idx, "event_phase"] = event_phase
+    # ====================================================
 
-batch_write(df, ws, headers)
-write_daily_summary(df)   
+    batch_write(df, ws, headers)
+    write_daily_summary(df)
 
 
 if __name__ == "__main__":
