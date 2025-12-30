@@ -6,6 +6,7 @@ from math import sqrt
 from py_vollib.black_scholes.greeks.analytical import delta, gamma
 
 
+# ================= BUCKETS =================
 def spot_bucket(x):
     if abs(x) < 0.3:
         return "center"
@@ -30,25 +31,29 @@ def week_from_date(date_str):
     return f"{year}-{week:02d}"
 
 
-
+# ================= CONFIG =================
 SYMBOLS = ["SPY", "QQQ", "AAPL"]
 RISK_FREE = 0.05
+
 
 def dte_weight(dte):
     return 1 / sqrt(max(dte, 1))
 
+
+# ================= OPTIONS LOAD =================
 def load_options(symbol):
     ticker = yf.Ticker(symbol)
-    spot = ticker.history(period="1d")["Close"].iloc[-1]
 
     rows = []
     for exp in ticker.options:
         exp_date = datetime.strptime(exp, "%Y-%m-%d")
         dte = (exp_date - datetime.utcnow()).days
+
         if dte <= 0 or dte > 30:
             continue
 
         chain = ticker.option_chain(exp)
+
         for side, df in [("call", chain.calls), ("put", chain.puts)]:
             for _, r in df.iterrows():
                 if r["openInterest"] > 0 and r["impliedVolatility"] > 0:
@@ -57,20 +62,23 @@ def load_options(symbol):
                         "oi": r["openInterest"],
                         "iv": r["impliedVolatility"],
                         "dte": dte,
-                        "type": side
+                        "type": side,
                     })
-    return spot, pd.DataFrame(rows)
 
+    return pd.DataFrame(rows)
+
+
+# ================= GREEKS =================
 def compute_greeks(df, spot):
     deltas, gammas = [], []
 
     for _, r in df.iterrows():
         flag = "c" if r["type"] == "call" else "p"
         try:
-            d = delta(flag, spot, r["strike"], r["dte"]/365, RISK_FREE, r["iv"])
-            g = gamma(flag, spot, r["strike"], r["dte"]/365, RISK_FREE, r["iv"])
-        except:
-            d, g = 0, 0
+            d = delta(flag, spot, r["strike"], r["dte"] / 365, RISK_FREE, r["iv"])
+            g = gamma(flag, spot, r["strike"], r["dte"] / 365, RISK_FREE, r["iv"])
+        except Exception:
+            d, g = 0.0, 0.0
 
         w = dte_weight(r["dte"])
         deltas.append(d * r["oi"] * w)
@@ -80,8 +88,9 @@ def compute_greeks(df, spot):
     df["gamma_exp"] = gammas
     return df
 
+
+# ================= GAMMA PROFILE =================
 def compute_gamma_profile(df, spot):
-    # gamma per strike
     gamma_by_strike = (
         df.groupby("strike")["gamma_exp"]
         .sum()
@@ -95,16 +104,12 @@ def compute_gamma_profile(df, spot):
             "gamma_distance_from_spot": 0.0,
         }
 
-    # peak gamma
     gamma_peak_price = gamma_by_strike.abs().idxmax()
-
     total_gamma = gamma_by_strike.abs().sum()
 
-    # concentration: top 3 strikes
     top_gamma = gamma_by_strike.abs().nlargest(3).sum()
     gamma_concentration = top_gamma / total_gamma if total_gamma != 0 else 0.0
 
-    # distance from spot (normalized)
     gamma_distance_from_spot = (gamma_peak_price - spot) / spot
 
     return {
@@ -114,25 +119,18 @@ def compute_gamma_profile(df, spot):
     }
 
 
+# ================= DNZ =================
 def find_dnz(df, spot):
     prices = np.linspace(spot * 0.9, spot * 1.1, 200)
     net_deltas = []
 
     for p in prices:
         total = 0.0
-
         for _, r in df.iterrows():
             flag = "c" if r["type"] == "call" else "p"
             try:
-                d = delta(
-                    flag,
-                    p,                      # 👈 KLUCZOWA ZMIANA
-                    r["strike"],
-                    r["dte"] / 365,
-                    RISK_FREE,
-                    r["iv"],
-                )
-            except:
+                d = delta(flag, p, r["strike"], r["dte"] / 365, RISK_FREE, r["iv"])
+            except Exception:
                 d = 0.0
 
             w = dte_weight(r["dte"])
@@ -141,167 +139,115 @@ def find_dnz(df, spot):
         net_deltas.append(total)
 
     net_deltas = np.array(net_deltas)
-
     idx = np.argmin(np.abs(net_deltas))
     dnz_mid = prices[idx]
 
-    # dynamiczny zakres DNZ (nie sztywny!)
     width = (prices.max() - prices.min()) * 0.005
-
     return dnz_mid - width, dnz_mid, dnz_mid + width
 
+
+# ================= EGP =================
 def compute_effective_gamma_pressure(df, spot, eps_pct=0.002):
     eps = spot * eps_pct
 
-    def net_delta_at_price(p):
+    def net_delta(p):
         total = 0.0
         for _, r in df.iterrows():
             flag = "c" if r["type"] == "call" else "p"
             try:
-                d = delta(
-                    flag,
-                    p,
-                    r["strike"],
-                    r["dte"] / 365,
-                    RISK_FREE,
-                    r["iv"],
-                )
-            except:
+                d = delta(flag, p, r["strike"], r["dte"] / 365, RISK_FREE, r["iv"])
+            except Exception:
                 d = 0.0
 
             w = dte_weight(r["dte"])
             total += d * r["oi"] * w
         return total
 
-    delta_up = net_delta_at_price(spot + eps)
-    delta_down = net_delta_at_price(spot - eps)
-
-    egp = abs(delta_up - delta_down) / (2 * eps)
-
-    return egp
+    return abs(net_delta(spot + eps) - net_delta(spot - eps)) / (2 * eps)
 
 
-
+# ================= MAIN RUN =================
 def run(symbol):
-    spot, df = load_options(symbol)
-    if df.empty:
+    ticker = yf.Ticker(symbol)
+
+    # ✅ SOURCE OF TRUTH: LAST MARKET SESSION
+    hist = ticker.history(period="5d")
+    if hist.empty:
         return
 
-    df = compute_greeks(df, spot)
-    gamma_profile = compute_gamma_profile(df, spot)
+    last_bar = hist.index[-1]
+    market_date = last_bar.date().strftime("%Y-%m-%d")
+    spot = hist["Close"].iloc[-1]
 
-    gamma_above = df[df["strike"] > spot]["gamma_exp"].sum()
-    gamma_below = df[df["strike"] < spot]["gamma_exp"].sum()
+    options_df = load_options(symbol)
+    if options_df.empty:
+        return
 
-    # --- GAMMA DERIVED METRICS ---
+    options_df = compute_greeks(options_df, spot)
+    gamma_profile = compute_gamma_profile(options_df, spot)
+
+    gamma_above = options_df[options_df["strike"] > spot]["gamma_exp"].sum()
+    gamma_below = options_df[options_df["strike"] < spot]["gamma_exp"].sum()
+
     gamma_total = gamma_above + gamma_below
     gamma_diff = gamma_above - gamma_below
     gamma_ratio = gamma_above / gamma_total if gamma_total != 0 else 0.0
     gamma_asym_strength = abs(gamma_diff) / gamma_total if gamma_total != 0 else 0.0
-    
 
-    
-    dnz_low, dnz_mid, dnz_high = find_dnz(df, spot)
-    effective_gamma_pressure = compute_effective_gamma_pressure(df, spot)
+    dnz_low, dnz_mid, dnz_high = find_dnz(options_df, spot)
+    effective_gamma_pressure = compute_effective_gamma_pressure(options_df, spot)
 
-    # --- SPOT POSITION IN DNZ ---
     dnz_range = dnz_high - dnz_low
     spot_position = (spot - dnz_mid) / dnz_range if dnz_range != 0 else 0.0
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    # --- BUCKETS & REGIME ---
     sb = spot_bucket(spot_position)
     gb = gamma_bucket(gamma_ratio)
     regime = f"{sb} | {gb}"
-    week = week_from_date(today)
 
-    
-  
     out = pd.DataFrame([{
-    "date": today,
-    "week": week,
-    "symbol": symbol,
-    "spot": spot,
+        "date": market_date,
+        "week": week_from_date(market_date),
+        "symbol": symbol,
+        "spot": spot,
 
-    "dnz_low": dnz_low,
-    "dnz_mid": dnz_mid,
-    "dnz_high": dnz_high,
-    "dnz_width": dnz_high - dnz_low,
-    "spot_position": spot_position,
+        "dnz_low": dnz_low,
+        "dnz_mid": dnz_mid,
+        "dnz_high": dnz_high,
+        "dnz_width": dnz_high - dnz_low,
+        "spot_position": spot_position,
 
-    "spot_bucket": sb,
-    "gamma_bucket": gb,
-    "regime": regime,
+        "spot_bucket": sb,
+        "gamma_bucket": gb,
+        "regime": regime,
 
-    "gamma_above": gamma_above,
-    "gamma_below": gamma_below,
-    "gamma_total": gamma_total,
-    "gamma_diff": gamma_diff,
-    "gamma_ratio": gamma_ratio,
-    "gamma_asym_strength": gamma_asym_strength,
-    "effective_gamma_pressure": effective_gamma_pressure,
-    "egp_normalized": effective_gamma_pressure / (dnz_high - dnz_low + 1e-9),
-    "gamma_peak_price": gamma_profile["gamma_peak_price"],
-    "gamma_concentration": gamma_profile["gamma_concentration"],
-    "gamma_distance_from_spot": gamma_profile["gamma_distance_from_spot"],
+        "gamma_above": gamma_above,
+        "gamma_below": gamma_below,
+        "gamma_total": gamma_total,
+        "gamma_diff": gamma_diff,
+        "gamma_ratio": gamma_ratio,
+        "gamma_asym_strength": gamma_asym_strength,
 
-    
-    "close_t+1": "",
-    "close_t+2": "",
-    "close_t+5": "",
-    "event_flag": "",
-}])
+        "effective_gamma_pressure": effective_gamma_pressure,
+        "egp_normalized": effective_gamma_pressure / (dnz_high - dnz_low + 1e-9),
 
+        "gamma_peak_price": gamma_profile["gamma_peak_price"],
+        "gamma_concentration": gamma_profile["gamma_concentration"],
+        "gamma_distance_from_spot": gamma_profile["gamma_distance_from_spot"],
 
+        "close_t+1": "",
+        "close_t+2": "",
+        "close_t+5": "",
+        "event_flag": "",
+    }])
 
-# ⬇️ JAWNIE WYBIERAMY KOLUMNY (KLUCZOWE)
-    out = out[
-    [
-        "date",
-        "week",
-        "symbol",
-        "spot",
-
-        "dnz_low",
-        "dnz_mid",
-        "dnz_high",
-        "dnz_width",
-        "spot_position",
-
-        "spot_bucket",
-        "gamma_bucket",
-        "regime",
-
-        "gamma_above",
-        "gamma_below",
-        "gamma_total",
-        "gamma_diff",
-        "gamma_ratio",
-        "gamma_asym_strength",
-        "effective_gamma_pressure",
-        "egp_normalized",
-        "gamma_peak_price",
-        "gamma_concentration",
-        "gamma_distance_from_spot",
-
-        
-        "close_t+1",
-        "close_t+2",
-        "close_t+5",
-        "event_flag",
-    ]
-]
-
-# --- FORCE DOT DECIMAL (CRITICAL FIX) ---
     for col in out.columns:
         if pd.api.types.is_numeric_dtype(out[col]):
             out[col] = out[col].astype(float)
 
-# --- SAVE CSV WITH DOT DECIMAL ---
     out.to_csv(
-        f"data/snapshots/{today}_{symbol}.csv",
+        f"data/snapshots/{market_date}_{symbol}.csv",
         index=False,
-        float_format="%.10f"
+        float_format="%.10f",
     )
 
 
