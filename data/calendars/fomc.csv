@@ -1,3 +1,9 @@
-date,event
-2025-01-29,FOMC
-2025-03-19,FOMC
+date,event,description
+2026-01-27,FOMC,January FOMC Meeting
+2026-03-17,FOMC,March FOMC Meeting*
+2026-04-28,FOMC,April FOMC Meeting
+2026-06-16,FOMC,June FOMC Meeting*
+2026-07-28,FOMC,July FOMC Meeting
+2026-09-15,FOMC,September FOMC Meeting*
+2026-10-27,FOMC,October FOMC Meeting
+2026-12-08,FOMC,December FOMC Meeting*
