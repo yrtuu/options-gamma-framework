@@ -4,7 +4,37 @@ import pandas as pd
 import gspread
 from datetime import datetime
 from google.oauth2.service_account import Credentials
+from pathlib import Path
 
+# ================= EVENT CALENDAR =================
+CALENDAR_PATH = Path("data/calendars")
+
+def load_event_calendar():
+    events = {}
+    for file in ["fomc.csv", "cpi.csv", "opex.csv"]:
+        path = CALENDAR_PATH / file
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        for _, r in df.iterrows():
+            events[str(r["date"])] = r["event"]
+    return events
+
+
+def resolve_event(market_date, events):
+    if market_date in events:
+        return True, events[market_date]
+    return False, "NONE"
+
+
+def resolve_event_phase(market_date, events):
+    dates = sorted(events.keys())
+    if market_date in events:
+        return "EVENT"
+    for d in dates:
+        if market_date < d:
+            return "PRE_EVENT"
+    return "POST_EVENT"
 
 SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
@@ -192,8 +222,32 @@ def main():
         return
 
     df = enrich_forward_metrics(df)
-    batch_write(df, ws, headers)
-    write_daily_summary(df)
+
+# ================= EVENT ENRICHMENT =================
+events = load_event_calendar()
+
+df["is_event_day"] = False
+df["event_type"] = "NONE"
+df["event_phase"] = "NONE"
+
+for date, g in df.groupby("date"):
+    market_date = str(date)
+
+    is_event, event_type = resolve_event(
+        market_date, events
+    )
+    event_phase = resolve_event_phase(
+        market_date, events
+    )
+
+    idx = g.index
+    df.loc[idx, "is_event_day"] = is_event
+    df.loc[idx, "event_type"] = event_type
+    df.loc[idx, "event_phase"] = event_phase
+# ====================================================
+
+batch_write(df, ws, headers)
+write_daily_summary(df)   
 
 
 if __name__ == "__main__":
