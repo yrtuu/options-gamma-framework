@@ -15,17 +15,26 @@ DATA_PATH = Path("data/snapshots")
 REQUIRED_COLUMNS = {"date", "symbol"}
 
 EXPECTED_HEADER = [
-    "date", "week", "symbol", "spot",
-    "dnz_low", "dnz_mid", "dnz_high", "dnz_width",
-    "spot_position", "spot_bucket", "gamma_bucket", "regime",
-    "gamma_above", "gamma_below", "gamma_total", "gamma_diff", "gamma_ratio",
-    "gamma_asym_strength", "effective_gamma_pressure", "egp_normalized",
-    "gamma_peak_price", "gamma_concentration", "gamma_distance_from_spot",
-    "close_t+1", "close_t+2", "close_t+5",
-    "ret_t+1", "ret_t+2", "ret_t+5",
-    "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
-    "data_ok", "event_flag",
+    "date","week","symbol","spot",
+    "dnz_low","dnz_mid","dnz_high","dnz_width",
+    "spot_position","spot_bucket","gamma_bucket","regime",
+    "gamma_above","gamma_below","gamma_total","gamma_diff","gamma_ratio",
+    "gamma_asym_strength","effective_gamma_pressure","egp_normalized",
+    "gamma_peak_price","gamma_concentration","gamma_distance_from_spot",
+    "close_t+1","close_t+2","close_t+5",
+    "ret_t+1","ret_t+2","ret_t+5",
+    "days_to_close_t+1","days_to_close_t+2","days_to_close_t+5",
+    "data_ok","event_flag",
+    "is_event_day","event_type","event_phase",
 ]
+
+if header != EXPECTED_HEADER:
+    raise RuntimeError(
+        "❌ RAW_DAILY SCHEMA DRIFT — STOP PIPELINE\n"
+        f"Expected: {EXPECTED_HEADER}\n"
+        f"Found:    {header}"
+    )
+
 
 
 # ================= AUTH =================
