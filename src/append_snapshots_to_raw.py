@@ -29,9 +29,6 @@ EXPECTED_HEADER = [
 ]
 
 
-
-
-
 # ================= AUTH =================
 def get_client():
     creds_json = json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"])
@@ -52,7 +49,7 @@ def load_existing_keys_and_header(ws):
 
     header = [h.strip().lower() for h in values[0]]
 
-    # 🔒 HARD SCHEMA GUARD
+    # 🔒 HARD SCHEMA GUARD — JEDYNE MIEJSCE
     if header != EXPECTED_HEADER:
         raise RuntimeError(
             "❌ RAW_DAILY SCHEMA DRIFT — STOP APPEND\n"
