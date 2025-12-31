@@ -4,7 +4,29 @@ import numpy as np
 from datetime import datetime
 from math import sqrt
 from py_vollib.black_scholes.greeks.analytical import delta, gamma
+# ================= NYSE CALENDAR =================
+import pandas_market_calendars as mcal
+import pandas as pd
+from datetime import datetime
 
+nyse = mcal.get_calendar("NYSE")
+
+def get_last_market_date():
+    """
+    Zwraca ostatni dzień handlowy NYSE.
+    Uwzględnia weekendy, święta i half-days.
+    """
+    today = datetime.utcnow().date()
+    schedule = nyse.schedule(
+        start_date=today - pd.Timedelta(days=7),
+        end_date=today
+    )
+
+    if schedule.empty:
+        return today.strftime("%Y-%m-%d")
+
+    last_session = schedule.index[-1]
+    return last_session.strftime("%Y-%m-%d")
 
 # ================= BUCKETS =================
 def spot_bucket(x):
@@ -170,14 +192,16 @@ def compute_effective_gamma_pressure(df, spot, eps_pct=0.002):
 def run(symbol):
     ticker = yf.Ticker(symbol)
 
-    # ✅ SOURCE OF TRUTH: LAST MARKET SESSION
-    hist = ticker.history(period="5d")
-    if hist.empty:
-        return
+    # ✅ SOURCE OF TRUTH: NYSE CALENDAR
+hist = ticker.history(period="5d")
+if hist.empty:
+    return
 
-    last_bar = hist.index[-1]
-    market_date = last_bar.date().strftime("%Y-%m-%d")
-    spot = hist["Close"].iloc[-1]
+last_bar = hist.index[-1]
+spot = hist["Close"].iloc[-1]
+
+# --- użyj oficjalnego NYSE kalendarza ---
+market_date = get_last_market_date()
 
     options_df = load_options(symbol)
     if options_df.empty:
@@ -243,6 +267,12 @@ def run(symbol):
     for col in out.columns:
         if pd.api.types.is_numeric_dtype(out[col]):
             out[col] = out[col].astype(float)
+
+# --- SAFE GUARD: nie zapisuj daty z przyszłości ---
+today = datetime.utcnow().date()
+if pd.to_datetime(market_date).date() > today:
+    print(f"[SKIP] {symbol} — future market date {market_date}")
+    return 
 
     out.to_csv(
         f"data/snapshots/{market_date}_{symbol}.csv",
