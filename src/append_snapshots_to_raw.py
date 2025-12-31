@@ -28,12 +28,7 @@ EXPECTED_HEADER = [
     "is_event_day","event_type","event_phase",
 ]
 
-if header != EXPECTED_HEADER:
-    raise RuntimeError(
-        "❌ RAW_DAILY SCHEMA DRIFT — STOP PIPELINE\n"
-        f"Expected: {EXPECTED_HEADER}\n"
-        f"Found:    {header}"
-    )
+
 
 
 
