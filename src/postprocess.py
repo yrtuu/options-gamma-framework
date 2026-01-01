@@ -327,6 +327,9 @@ def main():
     df = add_event_structure(df)
     df = add_regime_quality(df)
 
+    df = sanitize_for_sheets(df)
+   
+     
     batch_write(df, ws, headers)
     write_daily_summary(df)
 
