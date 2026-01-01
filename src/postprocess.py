@@ -230,6 +230,21 @@ def add_regime_quality(df):
     )
     return df
 
+
+
+# ================= SANITIZE FOR GOOGLE SHEETS =================
+def sanitize_for_sheets(df):
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = df[col].fillna("")
+        else:
+            df[col] = df[col].fillna("")
+
+    return df
+
+
 # ================= WRITE BACK (SAFE) =================
 def batch_write(df, ws, headers):
     header_map = {h: i for i, h in enumerate(headers)}
