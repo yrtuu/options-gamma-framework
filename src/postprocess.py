@@ -11,7 +11,6 @@ from pathlib import Path
 SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 SUMMARY_SHEET = "daily_summary"
-
 CALENDAR_PATH = Path("data/calendars")
 
 # ================= AUTH =================
@@ -72,12 +71,19 @@ def resolve_event(market_date, events):
     return False, "NONE"
 
 def resolve_event_phase(market_date, events):
-    dates = sorted(events.keys())
-    if market_date in events:
+    if not events:
+        return "NONE"
+
+    market_dt = pd.to_datetime(market_date)
+    event_dates = sorted(pd.to_datetime(list(events.keys())))
+
+    if market_dt in event_dates:
         return "EVENT"
-    for d in dates:
-        if market_date < d:
+
+    for d in event_dates:
+        if market_dt < d:
             return "PRE_EVENT"
+
     return "POST_EVENT"
 
 # ================= FORWARD METRICS =================
@@ -99,18 +105,22 @@ def enrich_forward_metrics(df):
         g = g.reset_index()
         for i, row in g.iterrows():
             base_idx = row["index"]
+
             for n in [1, 2, 5]:
                 if i + n >= len(g):
                     continue
+
                 future_spot = g.loc[i + n, "spot"]
+
                 if df.at[base_idx, f"close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"close_t+{n}"] = future_spot
+
                 if df.at[base_idx, f"ret_t+{n}"] in ["", None]:
                     df.at[base_idx, f"ret_t+{n}"] = future_spot / row["spot"] - 1
+
                 if df.at[base_idx, f"days_to_close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"days_to_close_t+{n}"] = n
 
-    # DATA QUALITY
     df["data_ok"] = (
         df.groupby("date")["symbol"]
         .transform("nunique")
@@ -119,21 +129,32 @@ def enrich_forward_metrics(df):
 
     return df.drop(columns=["date_dt"])
 
+# ================= NUMERIC CAST =================
+def cast_numeric(df):
+    num_cols = [
+        "ret_t+1", "dnz_width", "spot_position",
+        "effective_gamma_pressure", "gamma_asym_strength"
+    ]
+    for c in num_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
 # ================= KROK A — INTRADAY STRUCTURE =================
 def add_intraday_structure(df):
     df["day_direction"] = np.where(
-        df["ret_t+1"].astype(float) > 0, "UP",
-        np.where(df["ret_t+1"].astype(float) < 0, "DOWN", "FLAT")
+        df["ret_t+1"] > 0, "UP",
+        np.where(df["ret_t+1"] < 0, "DOWN", "FLAT")
     )
 
     df["range_expansion"] = (
         df.groupby("symbol")["dnz_width"]
-        .transform(lambda x: x.astype(float) > x.astype(float).rolling(5, min_periods=1).median())
+        .transform(lambda x: x > x.rolling(5, min_periods=1).median())
     )
 
     df["close_location"] = np.where(
-        df["spot_position"].astype(float) > 0.5, "HIGH",
-        np.where(df["spot_position"].astype(float) < -0.5, "LOW", "MID")
+        df["spot_position"] > 0.5, "HIGH",
+        np.where(df["spot_position"] < -0.5, "LOW", "MID")
     )
 
     return df
@@ -177,20 +198,18 @@ def add_cross_symbol(df):
 
 # ================= KROK D — EVENT × STRUCTURE =================
 def add_event_structure(df):
+    median_egp = df["effective_gamma_pressure"].median()
+
     df["event_structure_tag"] = (
         df["event_phase"] + " | " +
         df["gamma_bucket"] + " | " +
-        np.where(
-            df["effective_gamma_pressure"].astype(float)
-            > df["effective_gamma_pressure"].astype(float).median(),
-            "high_egp", "low_egp"
-        )
+        np.where(df["effective_gamma_pressure"] > median_egp, "high_egp", "low_egp")
     )
 
     df["event_risk_flag"] = np.select(
         [
-            (df["event_phase"] == "EVENT") & (df["effective_gamma_pressure"].astype(float) < 1e-4),
-            (df["event_phase"] == "PRE_EVENT") & (df["gamma_asym_strength"].astype(float) > 0.3),
+            (df["event_phase"] == "EVENT") & (df["effective_gamma_pressure"] < 1e-4),
+            (df["event_phase"] == "PRE_EVENT") & (df["gamma_asym_strength"] > 0.3),
         ],
         ["AVOID", "FAVORABLE"],
         default="NEUTRAL"
@@ -198,7 +217,7 @@ def add_event_structure(df):
 
     return df
 
-# ================= KROK E — QUALITY SCORE =================
+# ================= KROK E — REGIME QUALITY =================
 def add_regime_quality(df):
     df["regime_quality_score"] = (
         (df["regime_streak"] >= 2).astype(int)
@@ -206,14 +225,15 @@ def add_regime_quality(df):
         + (df["range_expansion"] == True).astype(int)
         - (
             (df["event_phase"] == "EVENT")
-            & (df["effective_gamma_pressure"].astype(float) < 1e-4)
+            & (df["effective_gamma_pressure"] < 1e-4)
         ).astype(int)
     )
     return df
 
-# ================= WRITE BACK =================
+# ================= WRITE BACK (SAFE) =================
 def batch_write(df, ws, headers):
     header_map = {h: i for i, h in enumerate(headers)}
+    updates = []
 
     for idx, row in df.iterrows():
         sheet_row = idx + 2
@@ -227,9 +247,14 @@ def batch_write(df, ws, headers):
                 continue
             updated[header_map[col]] = val
 
-        ws.update(f"A{sheet_row}", [updated], value_input_option="USER_ENTERED")
+        updates.append({
+            "range": f"A{sheet_row}",
+            "values": [updated],
+        })
 
-    print(f"[OK] Updated {len(df)} rows")
+    if updates:
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
+        print(f"[OK] Updated {len(updates)} rows")
 
 # ================= DAILY SUMMARY =================
 def write_daily_summary(df):
@@ -251,7 +276,7 @@ def write_daily_summary(df):
             return
 
     if ws.get_all_values() == []:
-        ws.append_row(["date","dominant_regime","share","symbols"], value_input_option="RAW")
+        ws.append_row(["date", "dominant_regime", "share", "symbols"], value_input_option="RAW")
 
     ws.append_row(
         [last_market_date.strftime("%Y-%m-%d"), dominant, share, len(day_df)],
@@ -265,6 +290,7 @@ def main():
         return
 
     df = enrich_forward_metrics(df)
+    df = cast_numeric(df)
 
     # EVENTS
     events = load_event_calendar()
@@ -279,7 +305,7 @@ def main():
         df.loc[g.index, "event_type"] = event_type
         df.loc[g.index, "event_phase"] = event_phase
 
-    # === INSTYTUCJONALNE BLOKI ===
+    # === INSTITUTIONAL BLOCKS ===
     df = add_intraday_structure(df)
     df = add_streaks(df)
     df = add_cross_symbol(df)
