@@ -1,46 +1,18 @@
 import os
 import json
+import numpy as np
 import pandas as pd
 import gspread
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 from pathlib import Path
 
-# ================= EVENT CALENDAR =================
-CALENDAR_PATH = Path("data/calendars")
-
-def load_event_calendar():
-    events = {}
-    for file in ["fomc.csv", "cpi.csv", "opex.csv"]:
-        path = CALENDAR_PATH / file
-        if not path.exists():
-            continue
-        df = pd.read_csv(path)
-        for _, r in df.iterrows():
-            events[str(r["date"])] = r["event"]
-    return events
-
-
-def resolve_event(market_date, events):
-    if market_date in events:
-        return True, events[market_date]
-    return False, "NONE"
-
-
-def resolve_event_phase(market_date, events):
-    dates = sorted(events.keys())
-    if market_date in events:
-        return "EVENT"
-    for d in dates:
-        if market_date < d:
-            return "PRE_EVENT"
-    return "POST_EVENT"
-
-
+# ================= CONFIG =================
 SPREADSHEET_NAME = "Options Gamma Log"
 RAW_SHEET = "raw_daily"
 SUMMARY_SHEET = "daily_summary"
 
+CALENDAR_PATH = Path("data/calendars")
 
 # ================= AUTH =================
 def get_client():
@@ -51,7 +23,6 @@ def get_client():
     ]
     creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
     return gspread.authorize(creds)
-
 
 # ================= LOAD RAW =================
 def load_raw():
@@ -68,7 +39,6 @@ def load_raw():
     df = pd.DataFrame(rows, columns=headers)
     return df, ws, headers
 
-
 # ================= LOAD SUMMARY =================
 def load_summary_df():
     gc = get_client()
@@ -84,6 +54,31 @@ def load_summary_df():
     df = pd.DataFrame(rows, columns=headers)
     return df, ws
 
+# ================= EVENT CALENDAR =================
+def load_event_calendar():
+    events = {}
+    for file in ["fomc.csv", "cpi.csv", "opex.csv"]:
+        path = CALENDAR_PATH / file
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        for _, r in df.iterrows():
+            events[str(r["date"])] = r["event"]
+    return events
+
+def resolve_event(market_date, events):
+    if market_date in events:
+        return True, events[market_date]
+    return False, "NONE"
+
+def resolve_event_phase(market_date, events):
+    dates = sorted(events.keys())
+    if market_date in events:
+        return "EVENT"
+    for d in dates:
+        if market_date < d:
+            return "PRE_EVENT"
+    return "POST_EVENT"
 
 # ================= FORWARD METRICS =================
 def enrich_forward_metrics(df):
@@ -102,149 +97,197 @@ def enrich_forward_metrics(df):
 
     for symbol, g in df.groupby("symbol"):
         g = g.reset_index()
-
         for i, row in g.iterrows():
             base_idx = row["index"]
-
             for n in [1, 2, 5]:
                 if i + n >= len(g):
                     continue
-
                 future_spot = g.loc[i + n, "spot"]
-
                 if df.at[base_idx, f"close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"close_t+{n}"] = future_spot
-
-                try:
-                    if df.at[base_idx, f"ret_t+{n}"] in ["", None]:
-                        df.at[base_idx, f"ret_t+{n}"] = future_spot / row["spot"] - 1
-                except Exception:
-                    pass
-
+                if df.at[base_idx, f"ret_t+{n}"] in ["", None]:
+                    df.at[base_idx, f"ret_t+{n}"] = future_spot / row["spot"] - 1
                 if df.at[base_idx, f"days_to_close_t+{n}"] in ["", None]:
                     df.at[base_idx, f"days_to_close_t+{n}"] = n
 
-    # ================= DATA QUALITY FLAG =================
-    MIN_SYMBOLS = 3
+    # DATA QUALITY
     df["data_ok"] = (
         df.groupby("date")["symbol"]
         .transform("nunique")
-        .ge(MIN_SYMBOLS)
+        .ge(3)
     )
 
     return df.drop(columns=["date_dt"])
 
+# ================= KROK A — INTRADAY STRUCTURE =================
+def add_intraday_structure(df):
+    df["day_direction"] = np.where(
+        df["ret_t+1"].astype(float) > 0, "UP",
+        np.where(df["ret_t+1"].astype(float) < 0, "DOWN", "FLAT")
+    )
 
-# ================= WRITE BACK RAW =================
+    df["range_expansion"] = (
+        df.groupby("symbol")["dnz_width"]
+        .transform(lambda x: x.astype(float) > x.astype(float).rolling(5, min_periods=1).median())
+    )
+
+    df["close_location"] = np.where(
+        df["spot_position"].astype(float) > 0.5, "HIGH",
+        np.where(df["spot_position"].astype(float) < -0.5, "LOW", "MID")
+    )
+
+    return df
+
+# ================= KROK B — STREAKS =================
+def compute_streak(series):
+    return (
+        series.groupby((series != series.shift()).cumsum())
+        .cumcount() + 1
+    )
+
+def add_streaks(df):
+    df = df.sort_values(["symbol", "date"])
+    df["spot_bucket_streak"] = df.groupby("symbol")["spot_bucket"].transform(compute_streak)
+    df["gamma_bucket_streak"] = df.groupby("symbol")["gamma_bucket"].transform(compute_streak)
+    df["regime_streak"] = df.groupby("symbol")["regime"].transform(compute_streak)
+    return df
+
+# ================= KROK C — CROSS SYMBOL =================
+def add_cross_symbol(df):
+    df["symbols_same_spot_bucket"] = (
+        df.groupby("date")["spot_bucket"]
+        .transform(lambda x: x.value_counts().max())
+    )
+
+    df["symbols_same_gamma_bucket"] = (
+        df.groupby("date")["gamma_bucket"]
+        .transform(lambda x: x.value_counts().max())
+    )
+
+    df["cross_symbol_alignment"] = np.select(
+        [
+            df["symbols_same_gamma_bucket"] >= 3,
+            df["symbols_same_gamma_bucket"] == 2,
+        ],
+        ["HIGH", "MEDIUM"],
+        default="LOW"
+    )
+
+    return df
+
+# ================= KROK D — EVENT × STRUCTURE =================
+def add_event_structure(df):
+    df["event_structure_tag"] = (
+        df["event_phase"] + " | " +
+        df["gamma_bucket"] + " | " +
+        np.where(
+            df["effective_gamma_pressure"].astype(float)
+            > df["effective_gamma_pressure"].astype(float).median(),
+            "high_egp", "low_egp"
+        )
+    )
+
+    df["event_risk_flag"] = np.select(
+        [
+            (df["event_phase"] == "EVENT") & (df["effective_gamma_pressure"].astype(float) < 1e-4),
+            (df["event_phase"] == "PRE_EVENT") & (df["gamma_asym_strength"].astype(float) > 0.3),
+        ],
+        ["AVOID", "FAVORABLE"],
+        default="NEUTRAL"
+    )
+
+    return df
+
+# ================= KROK E — QUALITY SCORE =================
+def add_regime_quality(df):
+    df["regime_quality_score"] = (
+        (df["regime_streak"] >= 2).astype(int)
+        + (df["symbols_same_gamma_bucket"] >= 2).astype(int)
+        + (df["range_expansion"] == True).astype(int)
+        - (
+            (df["event_phase"] == "EVENT")
+            & (df["effective_gamma_pressure"].astype(float) < 1e-4)
+        ).astype(int)
+    )
+    return df
+
+# ================= WRITE BACK =================
 def batch_write(df, ws, headers):
     header_map = {h: i for i, h in enumerate(headers)}
-    updates = []
 
     for idx, row in df.iterrows():
         sheet_row = idx + 2
-
         updated = ws.row_values(sheet_row)
         updated += [""] * (len(headers) - len(updated))
 
-        for col in [
-            "close_t+1", "close_t+2", "close_t+5",
-            "ret_t+1", "ret_t+2", "ret_t+5",
-            "days_to_close_t+1", "days_to_close_t+2", "days_to_close_t+5",
-            "data_ok",
-            "is_event_day", "event_type", "event_phase",
-        ]:
+        for col, val in row.items():
             if col not in header_map:
                 continue
-
-            val = row.get(col, "")
             if val in ["", None]:
                 continue
-
             updated[header_map[col]] = val
 
-        updates.append((sheet_row, updated))
+        ws.update(f"A{sheet_row}", [updated], value_input_option="USER_ENTERED")
 
-    for r, values in updates:
-        ws.update(f"A{r}", [values], value_input_option="USER_ENTERED")
-
-    print(f"[OK] Updated {len(updates)} raw rows")
-
+    print(f"[OK] Updated {len(df)} rows")
 
 # ================= DAILY SUMMARY =================
 def write_daily_summary(df):
-    df = df.copy()
     df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date_dt"])
-
     last_market_date = df["date_dt"].max().date()
-    day_df = df[df["date_dt"].dt.date == last_market_date]
 
+    day_df = df[df["date_dt"].dt.date == last_market_date]
     if day_df.empty:
-        print("[SKIP] No rows for last market date")
         return
 
     counts = day_df["regime"].value_counts()
     dominant = counts.idxmax()
     share = round(counts.max() / counts.sum(), 2)
-    symbols = int(counts.sum())
 
     summary_df, ws = load_summary_df()
-
     if not summary_df.empty:
         summary_df["date_dt"] = pd.to_datetime(summary_df["date"], errors="coerce")
-        last_summary_date = summary_df["date_dt"].max().date()
-        if last_market_date <= last_summary_date:
-            print(f"[SKIP] No new market session (last={last_market_date})")
+        if last_market_date <= summary_df["date_dt"].max().date():
             return
 
     if ws.get_all_values() == []:
-        ws.append_row(
-            ["date", "dominant_regime", "share", "symbols"],
-            value_input_option="RAW",
-        )
+        ws.append_row(["date","dominant_regime","share","symbols"], value_input_option="RAW")
 
     ws.append_row(
-        [last_market_date.strftime("%Y-%m-%d"), dominant, share, symbols],
-        value_input_option="RAW",
+        [last_market_date.strftime("%Y-%m-%d"), dominant, share, len(day_df)],
+        value_input_option="RAW"
     )
-
-    print(f"[OK] daily_summary added for {last_market_date}")
-
 
 # ================= ENTRY =================
 def main():
     df, ws, headers = load_raw()
-
-    print("RAW_DAILY columns:", headers)
-
-    if df.empty or "date" not in df.columns or "symbol" not in df.columns:
-        print("[EXIT] No valid raw data")
+    if df.empty:
         return
 
     df = enrich_forward_metrics(df)
 
-    # ================= EVENT ENRICHMENT =================
+    # EVENTS
     events = load_event_calendar()
-
     df["is_event_day"] = False
     df["event_type"] = "NONE"
     df["event_phase"] = "NONE"
 
     for date, g in df.groupby("date"):
-        market_date = str(date)
+        is_event, event_type = resolve_event(date, events)
+        event_phase = resolve_event_phase(date, events)
+        df.loc[g.index, "is_event_day"] = is_event
+        df.loc[g.index, "event_type"] = event_type
+        df.loc[g.index, "event_phase"] = event_phase
 
-        is_event, event_type = resolve_event(market_date, events)
-        event_phase = resolve_event_phase(market_date, events)
-
-        idx = g.index
-        df.loc[idx, "is_event_day"] = is_event
-        df.loc[idx, "event_type"] = event_type
-        df.loc[idx, "event_phase"] = event_phase
-    # ====================================================
+    # === INSTYTUCJONALNE BLOKI ===
+    df = add_intraday_structure(df)
+    df = add_streaks(df)
+    df = add_cross_symbol(df)
+    df = add_event_structure(df)
+    df = add_regime_quality(df)
 
     batch_write(df, ws, headers)
     write_daily_summary(df)
-
 
 if __name__ == "__main__":
     main()
