@@ -21,12 +21,37 @@ EXPECTED_HEADER = [
     "gamma_above","gamma_below","gamma_total","gamma_diff","gamma_ratio",
     "gamma_asym_strength","effective_gamma_pressure","egp_normalized",
     "gamma_peak_price","gamma_concentration","gamma_distance_from_spot",
+
     "close_t+1","close_t+2","close_t+5",
     "ret_t+1","ret_t+2","ret_t+5",
     "days_to_close_t+1","days_to_close_t+2","days_to_close_t+5",
+
     "data_ok","event_flag",
     "is_event_day","event_type","event_phase",
+
+    # === KROK A — INTRADAY STRUCTURE ===
+    "day_direction",
+    "range_expansion",
+    "close_location",
+
+    # === KROK B — STABILITY ===
+    "spot_bucket_streak",
+    "gamma_bucket_streak",
+    "regime_streak",
+
+    # === KROK C — CROSS SYMBOL ===
+    "symbols_same_spot_bucket",
+    "symbols_same_gamma_bucket",
+    "cross_symbol_alignment",
+
+    # === KROK D — EVENT × STRUCTURE ===
+    "event_structure_tag",
+    "event_risk_flag",
+
+    # === KROK E — QUALITY ===
+    "regime_quality_score",
 ]
+    
 
 
 # ================= AUTH =================
