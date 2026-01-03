@@ -271,8 +271,10 @@ def batch_write(df, ws, headers):
         ws.batch_update(updates, value_input_option="USER_ENTERED")
         print(f"[OK] Updated {len(updates)} rows")
 
-# ================= DAILY SUMMARY =================
+
 def write_daily_summary(df):
+    df = df.copy()
+
     df["date_dt"] = pd.to_datetime(df["date"], errors="coerce")
     last_market_date = df["date_dt"].max().date()
 
@@ -290,13 +292,28 @@ def write_daily_summary(df):
         if last_market_date <= summary_df["date_dt"].max().date():
             return
 
+    # ⏱️ TIMESTAMP PIPELINE (UTC)
+    created_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    # HEADER (tylko gdy arkusz pusty)
     if ws.get_all_values() == []:
-        ws.append_row(["date", "dominant_regime", "share", "symbols"], value_input_option="RAW")
+        ws.append_row(
+            ["date", "dominant_regime", "share", "symbols", "created_at_utc"],
+            value_input_option="RAW"
+        )
 
     ws.append_row(
-        [last_market_date.strftime("%Y-%m-%d"), dominant, share, len(day_df)],
+        [
+            last_market_date.strftime("%Y-%m-%d"),
+            dominant,
+            share,
+            len(day_df),
+            created_at,
+        ],
         value_input_option="RAW"
-    )
+    )   
+
+    
 
 # ================= ENTRY =================
 def main():
