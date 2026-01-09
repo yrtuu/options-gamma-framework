@@ -50,6 +50,12 @@ EXPECTED_HEADER = [
 
     # === KROK E — QUALITY ===
     "regime_quality_score",
+
+    # === PIPELINE METADATA ===
+    "created_at_utc",
+    "pipeline_version",
+    "run_id",
+
 ]
     
 
