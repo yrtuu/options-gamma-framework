@@ -6,6 +6,11 @@ import gspread
 from datetime import datetime
 from google.oauth2.service_account import Credentials
 from pathlib import Path
+import uuid
+
+PIPELINE_VERSION = "v1.1.0"
+RUN_ID = str(uuid.uuid4())
+CREATED_AT_UTC = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 # ================= CONFIG =================
 SPREADSHEET_NAME = "Options Gamma Log"
@@ -343,6 +348,11 @@ def main():
     df = add_cross_symbol(df)
     df = add_event_structure(df)
     df = add_regime_quality(df)
+
+    # ================= PIPELINE METADATA =================
+    df["created_at_utc"] = CREATED_AT_UTC
+    df["pipeline_version"] = PIPELINE_VERSION
+    df["run_id"] = RUN_ID
 
     df = sanitize_for_sheets(df)
    
